@@ -36,12 +36,14 @@ go.work.sum
 # Runtime plugins stay local; keep the plugin engine under internal/plugins tracked.
 /plugins/
 
-# Only the official default public theme is distributed with the core.
+# Keep bundled public themes in version control; locally installed themes stay ignored.
 /themes/*
 !/themes/themes.go
 !/themes/themes_test.go
 !/themes/default/
 !/themes/default/**
+!/themes/editorial/
+!/themes/editorial/**
 
 # Editor/IDE
 # .idea/

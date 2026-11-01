@@ -327,11 +327,16 @@
   width: auto;
   margin: 0;
   padding: 0;
+  border: 0;
   background: none;
   color: #3156c9;
   font-size: 0.82rem;
   font-weight: 500;
   text-decoration: none;
+}
+
+.row-actions button {
+  cursor: pointer;
 }
 
 .row-actions form {
@@ -580,10 +585,12 @@
   width: auto;
   margin: 0;
   padding: 0;
+  border: 0;
   background: none;
   color: #3156c9;
   font-size: 0.82rem;
   font-weight: 500;
+  cursor: pointer;
 }
 
 .media-card-actions form {

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    {{if .Item.Summary}}<meta name="description" content="{{.Item.Summary}}">{{else if .Site.Tagline}}<meta name="description" content="{{.Site.Tagline}}">{{end}}
+    <title>{{.Item.Title}} | {{.Site.Title}}</title>
+    <link rel="stylesheet" href="/themes/{{.Theme}}/style.css">
+    {{.HeadTags}}
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="{{.Site.Title}} — início">
+        {{if .Site.Logo}}<img class="brand-logo" src="{{.Site.Logo}}" alt="{{.Site.Title}}">{{else}}{{.Site.Title}}{{end}}
+      </a>
+      <div class="site-nav">{{render_menu "primary"}}</div>
+    </header>
+    <main class="site-main reading-main">
+      <a class="back-link" href="/">← Início</a>
+      <article class="article">
+        <header class="article-header page-header">
+          <p class="eyebrow">Página <span aria-hidden="true">✳</span> {{.Site.Title}}</p>
+          <h1>{{.Item.Title}}</h1>
+        </header>
+        {{if .Item.FeaturedImage}}
+          <figure class="article-cover">
+            <img src="{{.Item.FeaturedImage}}" alt="" fetchpriority="high">
+          </figure>
+        {{end}}
+        <div class="article-content">{{.Item.HTML}}</div>
+      </article>
+    </main>
+    <footer class="site-footer">
+      <a class="brand brand-small" href="/">
+        {{if .Site.Logo}}<img class="brand-logo" src="{{.Site.Logo}}" alt="{{.Site.Title}}">{{else}}{{.Site.Title}}{{end}}
+      </a>
+      {{if .Site.Tagline}}<p>{{.Site.Tagline}}</p>{{end}}
+      {{render_menu "footer"}}
+    </footer>
+  </body>
+</html>

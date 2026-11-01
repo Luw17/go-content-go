@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    {{if .Site.Tagline}}<meta name="description" content="{{.Site.Tagline}}">{{end}}
+    <title>{{.Site.Title}}</title>
+    <link rel="stylesheet" href="/themes/{{.Theme}}/style.css">
+    {{.HeadTags}}
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="{{.Site.Title}} — início">
+        {{if .Site.Logo}}<img class="brand-logo" src="{{.Site.Logo}}" alt="{{.Site.Title}}">{{else}}{{.Site.Title}}{{end}}
+      </a>
+      <div class="site-nav">{{render_menu "primary"}}</div>
+    </header>
+    <main class="site-main">
+      <section class="intro">
+        <p class="eyebrow">Caderno aberto <span aria-hidden="true">✳</span> {{.Site.Title}}</p>
+        <h1>{{.Site.HomeIntroTitle}}</h1>
+        {{if .Site.Tagline}}<p class="intro-copy">{{.Site.Tagline}}</p>{{end}}
+      </section>
+      <section class="post-list" aria-labelledby="latest-posts">
+        <div class="section-heading">
+          <span class="section-kicker">Do arquivo</span>
+          <h2 id="latest-posts">{{.Site.HomePostsTitle}}</h2>
+        </div>
+        {{if .Posts}}
+          {{range $post := .Posts}}
+            <article class="post-card">
+              <span class="post-number" aria-hidden="true">✳</span>
+              {{if $post.FeaturedImage}}
+                <a class="post-card-image" href="/{{$post.Slug}}" tabindex="-1" aria-hidden="true">
+                  <img src="{{$post.FeaturedImage}}" alt="" loading="lazy">
+                </a>
+              {{end}}
+              <div class="post-card-body">
+                <div class="post-meta">
+                  {{if $post.FormattedPublishedAt}}<time datetime="{{$post.PublishedAt}}">{{$post.FormattedPublishedAt}}</time>{{end}}
+                  {{if and $post.FormattedPublishedAt $post.Author}}<span aria-hidden="true">/</span>{{end}}
+                  {{if $post.Author}}<span>Por {{$post.Author}}</span>{{end}}
+                </div>
+                <h3><a href="/{{$post.Slug}}">{{$post.Title}}</a></h3>
+                {{if $post.Summary}}<p class="post-summary">{{$post.Summary}}</p>{{end}}
+                <a class="read-more" href="/{{$post.Slug}}">Ler artigo <span aria-hidden="true">↗</span></a>
+              </div>
+            </article>
+          {{end}}
+        {{else}}
+          <div class="empty-state">
+            <h3>Uma história começa aqui.</h3>
+            <p>Quando um post for publicado, ele aparecerá nesta página.</p>
+          </div>
+        {{end}}
+      </section>
+    </main>
+    <footer class="site-footer">
+      <a class="brand brand-small" href="/">
+        {{if .Site.Logo}}<img class="brand-logo" src="{{.Site.Logo}}" alt="{{.Site.Title}}">{{else}}{{.Site.Title}}{{end}}
+      </a>
+      {{if .Site.Tagline}}<p>{{.Site.Tagline}}</p>{{end}}
+      {{render_menu "footer"}}
+    </footer>
+  </body>
+</html>

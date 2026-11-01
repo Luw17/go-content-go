@@ -20,10 +20,11 @@ Para usar outra porta no host, defina `GO_CONTENT_GO_PORT`, por exemplo
 `GO_CONTENT_GO_PORT=9000 docker compose up -d --build`.
 
 O Compose mantém o banco, uploads, backups, temas e plugins em volumes
-persistentes nomeados. O tema `default` vem na imagem e também está embutido no
-binário como fallback. Temas adicionais e plugins Alpha podem ser instalados em
-**Aparência → Instalar tema** e **Plugins → Instalar plugin**, ou colocados nos
-respectivos volumes em `/app/themes/<id>` e `/app/plugins/<id>`.
+persistentes nomeados. Os temas `default` e `editorial` vêm na imagem; o tema
+`default` também está embutido no binário como fallback. Temas adicionais e
+plugins Alpha podem ser instalados em **Aparência → Instalar tema** e
+**Plugins → Instalar plugin**, ou colocados nos respectivos volumes em
+`/app/themes/<id>` e `/app/plugins/<id>`.
 
 O painel aceita pacotes ZIP de até 20 MB. Temas devem conter `index.html`,
 `single.html`, `page.html`, `404.html` e `style.css`; `theme.json` é opcional.
@@ -67,6 +68,13 @@ de introdução e da seção de posts do tema padrão.
 
 As opções são persistidas na tabela `options` do SQLite. Se a página inicial
 configurada deixar de estar disponível, a home volta à lista de posts publicados.
+O CMS fornece conteúdo, identidade e menus aos templates; cada tema controla a
+estrutura HTML e os estilos das páginas públicas. O visual do painel
+administrativo é independente dos temas.
+
+O tema **Editorial** é uma segunda opção pronta para ativação em
+`/admin/appearance`, com layout e paleta próprios para comparar com o tema
+`default`.
 
 ## Menus e mídia no editor
 

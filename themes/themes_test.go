@@ -49,6 +49,41 @@ func TestMissingThemeDirectoryUsesEmbeddedDefault(t *testing.T) {
 	}
 }
 
+func TestEditorialThemeIsAvailable(t *testing.T) {
+	manager, err := New(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	available, err := manager.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, theme := range available {
+		if theme.ID == "editorial" {
+			if theme.Name != "Editorial" || theme.Version != "1.0.0" || !theme.Valid {
+				t.Fatalf("editorial theme metadata = %+v", theme)
+			}
+			if err := manager.Validate("editorial"); err != nil {
+				t.Fatalf("validate editorial theme: %v", err)
+			}
+			asset, err := manager.OpenAsset("editorial", "style.css")
+			if err != nil {
+				t.Fatalf("open editorial stylesheet: %v", err)
+			}
+			defer asset.Close()
+			css, err := io.ReadAll(asset)
+			if err != nil {
+				t.Fatalf("read editorial stylesheet: %v", err)
+			}
+			if !strings.Contains(string(css), "--accent: #d65335") {
+				t.Fatal("editorial stylesheet does not contain its theme palette")
+			}
+			return
+		}
+	}
+	t.Fatal("editorial theme is not listed")
+}
+
 func TestThemeMetadataTemplatesAndAssetTraversal(t *testing.T) {
 	root := t.TempDir()
 	writeTheme(t, root, "custom")

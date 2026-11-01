@@ -121,6 +121,21 @@ a:focus-visible {
   font-size: 0.83rem;
 }
 
+.site-nav nav,
+.site-footer nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 1rem;
+}
+
+.site-nav nav a + a::before,
+.site-footer nav a + a::before {
+  margin-right: 1rem;
+  color: var(--border);
+  content: "|";
+}
+
 .site-nav a {
   font-weight: 600;
 }
