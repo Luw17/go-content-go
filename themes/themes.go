@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/Luw17/go-content-go/internal/packagezip"
 )
 
 const DefaultName = "default"
@@ -142,8 +144,12 @@ func (m *Manager) Active(ctx context.Context, db *sql.DB) (string, error) {
 }
 
 func (m *Manager) Resolve(name string) (string, *template.Template, error) {
+	return m.ResolveWithFuncs(name, nil)
+}
+
+func (m *Manager) ResolveWithFuncs(name string, funcs template.FuncMap) (string, *template.Template, error) {
 	if ValidName(name) {
-		templates, err := m.load(name)
+		templates, err := m.load(name, funcs)
 		if err == nil {
 			return name, templates, nil
 		}
@@ -157,7 +163,7 @@ func (m *Manager) Resolve(name string) (string, *template.Template, error) {
 	if err != nil {
 		return "", nil, fmt.Errorf("load embedded default theme: %w", err)
 	}
-	templates, err := parseTheme(files)
+	templates, err := parseTheme(files, funcs)
 	if err != nil {
 		return "", nil, fmt.Errorf("parse embedded default theme: %w", err)
 	}
@@ -168,7 +174,7 @@ func (m *Manager) Validate(name string) error {
 	if !ValidName(name) {
 		return ErrNotFound
 	}
-	if _, err := m.load(name); err == nil {
+	if _, err := m.load(name, nil); err == nil {
 		return nil
 	} else if name != DefaultName {
 		return err
@@ -177,11 +183,79 @@ func (m *Manager) Validate(name string) error {
 	if err != nil {
 		return err
 	}
-	_, err = parseTheme(files)
+	_, err = parseTheme(files, nil)
 	return err
 }
 
-func (m *Manager) load(name string) (*template.Template, error) {
+func (m *Manager) InstallZip(source io.Reader, archiveName string) (string, error) {
+	return packagezip.InstallZip(source, archiveName, m.root,
+		func(directory, filename, packageDirectory string) (string, error) {
+			name := packageDirectory
+			if name == "" {
+				name = strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename))
+			}
+			if !ValidName(name) {
+				return "", fmt.Errorf("theme directory name is invalid")
+			}
+			return name, nil
+		},
+		func(directory, name string) error {
+			if !ValidName(name) {
+				return ErrNotFound
+			}
+			return ValidateDirectory(directory)
+		},
+	)
+}
+
+func ValidateDirectory(directory string) error {
+	for _, filename := range []string{"index.html", "single.html", "page.html", "404.html", "style.css"} {
+		info, err := os.Lstat(filepath.Join(directory, filename))
+		if err != nil {
+			return fmt.Errorf("required theme file %q is missing", filename)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("required theme file %q must be a regular file", filename)
+		}
+	}
+	if _, err := parseTheme(os.DirFS(directory), nil); err != nil {
+		return err
+	}
+	metadataPath := filepath.Join(directory, "theme.json")
+	info, err := os.Lstat(metadataPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect theme metadata: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Size() > 16<<10 {
+		return fmt.Errorf("theme metadata must be a regular file no larger than 16 KiB")
+	}
+	file, err := os.Open(metadataPath)
+	if err != nil {
+		return fmt.Errorf("open theme metadata: %w", err)
+	}
+	defer file.Close()
+	var metadata struct {
+		Name    string `json:"name"`
+		Author  string `json:"author"`
+		Version string `json:"version"`
+	}
+	decoder := json.NewDecoder(file)
+	if err := decoder.Decode(&metadata); err != nil {
+		return fmt.Errorf("parse theme metadata: %w", err)
+	}
+	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
+		return fmt.Errorf("theme metadata contains trailing JSON")
+	}
+	if len(metadata.Name) > 120 || len(metadata.Author) > 120 || len(metadata.Version) > 64 {
+		return fmt.Errorf("theme metadata fields exceed the allowed length")
+	}
+	return nil
+}
+
+func (m *Manager) load(name string, funcs template.FuncMap) (*template.Template, error) {
 	if !ValidName(name) {
 		return nil, ErrNotFound
 	}
@@ -217,10 +291,10 @@ func (m *Manager) load(name string) (*template.Template, error) {
 			return nil, fmt.Errorf("theme template %q must be a regular file", filename)
 		}
 	}
-	return parseTheme(os.DirFS(resolved))
+	return parseTheme(os.DirFS(resolved), funcs)
 }
 
-func parseTheme(files fs.FS) (*template.Template, error) {
+func parseTheme(files fs.FS, funcs template.FuncMap) (*template.Template, error) {
 	required := []string{"index.html", "single.html", "page.html", "404.html", "style.css"}
 	for _, name := range required {
 		file, err := files.Open(name)
@@ -231,7 +305,13 @@ func parseTheme(files fs.FS) (*template.Template, error) {
 			return nil, fmt.Errorf("close %s: %w", name, err)
 		}
 	}
-	templates, err := template.New("index.html").ParseFS(files, required[:4]...)
+	if funcs == nil {
+		funcs = template.FuncMap{}
+	}
+	if _, ok := funcs["render_menu"]; !ok {
+		funcs["render_menu"] = func(string) template.HTML { return "" }
+	}
+	templates, err := template.New("index.html").Funcs(funcs).ParseFS(files, required[:4]...)
 	if err != nil {
 		return nil, fmt.Errorf("parse theme templates: %w", err)
 	}
@@ -245,7 +325,7 @@ func (m *Manager) OpenAsset(themeName, assetPath string) (fs.File, error) {
 		return nil, ErrNotFound
 	}
 	if themeName == DefaultName {
-		if _, err := m.load(DefaultName); err != nil {
+		if _, err := m.load(DefaultName, nil); err != nil {
 			files, fsErr := defaultFS()
 			if fsErr != nil {
 				return nil, fsErr

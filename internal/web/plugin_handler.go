@@ -37,6 +37,10 @@ func (h *handler) pluginList(w http.ResponseWriter, r *http.Request) {
 	case "deactivated":
 		page.Notice = "Plugin desativado."
 	}
+	if r.URL.Query().Get("installed") == "1" {
+		page.Notice = "Plugin instalado e disponível para ativação."
+	}
+	page.Error = packageInstallErrorMessage(r.URL.Query().Get("install_error"))
 	h.renderAdmin(w, page)
 }
 

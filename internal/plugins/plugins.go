@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Luw17/go-content-go/internal/packagezip"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -188,6 +189,29 @@ func (m *Manager) Reload(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
+func (m *Manager) InstallZip(source io.Reader, archiveName string) (string, error) {
+	return packagezip.InstallZip(source, archiveName, m.root,
+		func(directory, _, _ string) (string, error) {
+			manifest, err := readManifestAt(directory, "")
+			if err != nil {
+				return "", err
+			}
+			return manifest.ID, nil
+		},
+		func(directory, id string) error {
+			manifest, err := readManifestAt(directory, id)
+			if err != nil {
+				return err
+			}
+			source, err := readMainFileAt(directory, manifest)
+			if err != nil {
+				return err
+			}
+			return validatePluginModule(manifest, source, m.timeout)
+		},
+	)
+}
+
 func (m *Manager) activeIDs(ctx context.Context, db *sql.DB) (map[string]bool, error) {
 	var raw string
 	err := db.QueryRowContext(ctx, `SELECT value FROM options WHERE key = 'active_plugins'`).Scan(&raw)
@@ -247,6 +271,10 @@ func (m *Manager) readManifest(id string) (Manifest, error) {
 	if err != nil {
 		return Manifest{}, err
 	}
+	return readManifestAt(directory, id)
+}
+
+func readManifestAt(directory, expectedID string) (Manifest, error) {
 	path := filepath.Join(directory, "plugin.json")
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -268,7 +296,8 @@ func (m *Manager) readManifest(id string) (Manifest, error) {
 	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
 		return Manifest{}, fmt.Errorf("plugin manifest contains trailing JSON")
 	}
-	if manifest.ID != id || strings.TrimSpace(manifest.Name) == "" ||
+	if !ValidID(manifest.ID) || (expectedID != "" && manifest.ID != expectedID) ||
+		strings.TrimSpace(manifest.Name) == "" ||
 		len(manifest.Name) > 120 || len(manifest.Version) > 64 ||
 		len(manifest.Description) > 1000 || len(manifest.Author) > 120 ||
 		manifest.MainFile == "" || filepath.Base(manifest.MainFile) != manifest.MainFile ||
@@ -291,6 +320,10 @@ func (m *Manager) validateMainFile(manifest Manifest) error {
 	if err != nil {
 		return err
 	}
+	return validateMainFileAt(directory, manifest)
+}
+
+func validateMainFileAt(directory string, manifest Manifest) error {
 	path := filepath.Join(directory, manifest.MainFile)
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -307,6 +340,10 @@ func (m *Manager) readMainFile(manifest Manifest) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	return readMainFileAt(directory, manifest)
+}
+
+func readMainFileAt(directory string, manifest Manifest) ([]byte, error) {
 	path := filepath.Join(directory, manifest.MainFile)
 	info, err := os.Lstat(path)
 	if err != nil {

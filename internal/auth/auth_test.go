@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Luw17/go-content-go/internal/database"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func TestInitialAdminAuthenticationAndSessions(t *testing.T) {
@@ -29,6 +30,14 @@ func TestInitialAdminAuthenticationAndSessions(t *testing.T) {
 	}
 	if user.Username != "admin_user" || user.Role != "admin" {
 		t.Fatalf("created user = %+v, want normalized admin user", user)
+	}
+	var passwordHash string
+	if err := db.QueryRowContext(ctx, "SELECT password_hash FROM users WHERE id = ?", user.ID).Scan(&passwordHash); err != nil {
+		t.Fatal(err)
+	}
+	cost, err := bcrypt.Cost([]byte(passwordHash))
+	if err != nil || cost < passwordCost {
+		t.Fatalf("stored bcrypt cost = %d, error = %v; want at least %d", cost, err, passwordCost)
 	}
 	if _, err := CreateInitialAdmin(ctx, db, "second", "another-secure-password"); !errors.Is(err, ErrSetupComplete) {
 		t.Fatalf("second initial administrator error = %v, want ErrSetupComplete", err)
@@ -62,6 +71,40 @@ func TestInitialAdminAuthenticationAndSessions(t *testing.T) {
 	}
 	if _, valid, err := SessionUser(ctx, db, token); err != nil || valid {
 		t.Fatalf("session remained valid after logout: valid=%v err=%v", valid, err)
+	}
+}
+
+func TestAuthenticateUpgradesLegacyPasswordCost(t *testing.T) {
+	ctx := context.Background()
+	db, err := database.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := database.Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	user, err := CreateInitialAdmin(ctx, db, "legacy_admin", "a-secure-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyHash, err := bcrypt.GenerateFromPassword([]byte("a-secure-password"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, "UPDATE users SET password_hash = ? WHERE id = ?", string(legacyHash), user.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Authenticate(ctx, db, "legacy_admin", "a-secure-password"); err != nil {
+		t.Fatal(err)
+	}
+	var upgradedHash string
+	if err := db.QueryRowContext(ctx, "SELECT password_hash FROM users WHERE id = ?", user.ID).Scan(&upgradedHash); err != nil {
+		t.Fatal(err)
+	}
+	cost, err := bcrypt.Cost([]byte(upgradedHash))
+	if err != nil || cost < passwordCost {
+		t.Fatalf("upgraded bcrypt cost = %d, error = %v; want at least %d", cost, err, passwordCost)
 	}
 }
 

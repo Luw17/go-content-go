@@ -6,11 +6,15 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Luw17/go-content-go/internal/auth"
+	"github.com/Luw17/go-content-go/internal/content"
 	"github.com/Luw17/go-content-go/internal/database"
+	"github.com/Luw17/go-content-go/internal/media"
+	"github.com/Luw17/go-content-go/internal/siteconfig"
 )
 
 func (h *handler) userList(w http.ResponseWriter, r *http.Request) {
@@ -81,13 +85,105 @@ func (h *handler) settings(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to prepare settings", http.StatusInternalServerError)
 		return
 	}
-	page := adminPage{Mode: "settings", Title: "Configurações", Username: user.Username, CSRFToken: token}
+	settings, err := siteconfig.Load(r.Context(), h.db)
+	if err != nil {
+		log.Printf("load global settings: %v", err)
+		http.Error(w, "failed to load settings", http.StatusInternalServerError)
+		return
+	}
+	pages, err := content.PublishedPages(r.Context(), h.db)
+	if err != nil {
+		log.Printf("load published pages for settings: %v", err)
+		http.Error(w, "failed to load settings", http.StatusInternalServerError)
+		return
+	}
+	mediaItems, err := h.media.List(r.Context())
+	if err != nil {
+		log.Printf("load media for site identity settings: %v", err)
+		http.Error(w, "failed to load settings", http.StatusInternalServerError)
+		return
+	}
+	page := adminPage{
+		Mode: "settings", Title: "Configurações", Username: user.Username, CSRFToken: token,
+		SiteSettings: settings, Items: pages, MediaItems: mediaItems,
+	}
 	if r.URL.Query().Get("backup") == "created" {
 		page.Notice = "Backup criado em backups/."
 	} else if r.URL.Query().Get("optimized") == "1" {
 		page.Notice = "Banco de dados otimizado."
+	} else if r.URL.Query().Get("saved") == "1" {
+		page.Notice = "Configurações do site salvas."
+	} else if r.URL.Query().Get("error") == "invalid" {
+		page.Error = "Revise os campos: escolha uma página publicada e um logotipo de imagem válido."
 	}
 	h.renderAdmin(w, page)
+}
+
+func (h *handler) saveSiteSettings(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireAdmin(w, r); !ok {
+		return
+	}
+	if err := parseForm(w, r); err != nil {
+		http.Error(w, "invalid settings form", http.StatusBadRequest)
+		return
+	}
+	if !validCSRFToken(r) {
+		http.Error(w, "invalid form token", http.StatusForbidden)
+		return
+	}
+	settings := siteconfig.Settings{
+		Title:          r.FormValue("site_title"),
+		Tagline:        r.FormValue("site_tagline"),
+		Logo:           r.FormValue("site_logo"),
+		ShowOnFront:    r.FormValue("show_on_front"),
+		HomeIntroTitle: r.FormValue("home_intro_title"),
+		HomePostsTitle: r.FormValue("home_posts_title"),
+	}
+	if settings.ShowOnFront == siteconfig.FrontPage {
+		pageID, err := strconv.ParseInt(r.FormValue("page_on_front"), 10, 64)
+		if err != nil || pageID <= 0 {
+			http.Redirect(w, r, "/admin/settings?error=invalid", http.StatusSeeOther)
+			return
+		}
+		settings.PageOnFront = pageID
+	} else if settings.ShowOnFront != siteconfig.FrontPosts {
+		http.Redirect(w, r, "/admin/settings?error=invalid", http.StatusSeeOther)
+		return
+	}
+	if settings.Logo != "" {
+		logo, err := h.media.FindByPath(r.Context(), settings.Logo)
+		if err != nil || !strings.HasPrefix(strings.ToLower(logo.FileType), "image/") {
+			if err != nil && !errors.Is(err, media.ErrNotFound) {
+				log.Printf("validate site logo: %v", err)
+				http.Error(w, "failed to validate site logo", http.StatusInternalServerError)
+				return
+			}
+			http.Redirect(w, r, "/admin/settings?error=invalid", http.StatusSeeOther)
+			return
+		}
+	}
+	if settings.ShowOnFront == siteconfig.FrontPage {
+		if _, err := content.PublishedPageByID(r.Context(), h.db, settings.PageOnFront); err != nil {
+			if !errors.Is(err, content.ErrNotFound) {
+				log.Printf("validate front page: %v", err)
+				http.Error(w, "failed to validate front page", http.StatusInternalServerError)
+				return
+			}
+			http.Redirect(w, r, "/admin/settings?error=invalid", http.StatusSeeOther)
+			return
+		}
+	}
+	if err := siteconfig.Save(r.Context(), h.db, settings); err != nil {
+		if errors.Is(err, siteconfig.ErrInvalidSettings) {
+			http.Redirect(w, r, "/admin/settings?error=invalid", http.StatusSeeOther)
+			return
+		}
+		log.Printf("save global settings: %v", err)
+		http.Error(w, "failed to save settings", http.StatusInternalServerError)
+		return
+	}
+	h.cache.Clear()
+	http.Redirect(w, r, "/admin/settings?saved=1", http.StatusSeeOther)
 }
 
 func (h *handler) createBackup(w http.ResponseWriter, r *http.Request) {

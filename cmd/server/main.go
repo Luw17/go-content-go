@@ -50,6 +50,7 @@ func run() error {
 		ThemeDir:      cfg.ThemesPath,
 		PluginDir:     cfg.PluginsPath,
 		BackupDir:     cfg.BackupPath,
+		APIRateLimit:  cfg.APIRateLimit,
 	})
 	if err != nil {
 		return fmt.Errorf("initialize web handler: %w", err)

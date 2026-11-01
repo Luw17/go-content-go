@@ -4,27 +4,27 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light dark">
-    <meta name="description" content="Artigos e ideias publicados no Go Content Go!">
-    <title>Início | Go Content Go!</title>
+    {{if .Site.Tagline}}<meta name="description" content="{{.Site.Tagline}}">{{end}}
+    <title>{{.Site.Title}}</title>
     <link rel="stylesheet" href="/themes/{{.Theme}}/style.css">
     {{.HeadTags}}
   </head>
   <body>
     <header class="site-header">
-      <a class="brand" href="/" aria-label="Go Content Go! — início">Go Content Go<span>!</span></a>
-      <nav class="site-nav" aria-label="Navegação principal">
-        <a href="/">Início</a>
-      </nav>
+      <a class="brand" href="/" aria-label="{{.Site.Title}} — início">
+        {{if .Site.Logo}}<img class="brand-logo" src="{{.Site.Logo}}" alt="{{.Site.Title}}">{{else}}{{.Site.Title}}{{end}}
+      </a>
+      <div class="site-nav">{{render_menu "primary"}}</div>
     </header>
     <main class="site-main">
       <section class="intro">
-        <p class="eyebrow">Go Content Go!</p>
-        <h1>Ideias para ler com calma.</h1>
-        <p class="intro-copy">Artigos, novidades e pensamentos publicados por aqui.</p>
+        <p class="eyebrow">{{.Site.Title}}</p>
+        <h1>{{.Site.HomeIntroTitle}}</h1>
+        {{if .Site.Tagline}}<p class="intro-copy">{{.Site.Tagline}}</p>{{end}}
       </section>
       <section class="post-list" aria-labelledby="latest-posts">
         <div class="section-heading">
-          <h2 id="latest-posts">Publicações recentes</h2>
+          <h2 id="latest-posts">{{.Site.HomePostsTitle}}</h2>
         </div>
         {{if .Posts}}
           {{range .Posts}}
@@ -55,8 +55,11 @@
       </section>
     </main>
     <footer class="site-footer">
-      <a class="brand brand-small" href="/">Go Content Go<span>!</span></a>
-      <p>Feito para publicar com simplicidade.</p>
+      <a class="brand brand-small" href="/">
+        {{if .Site.Logo}}<img class="brand-logo" src="{{.Site.Logo}}" alt="{{.Site.Title}}">{{else}}{{.Site.Title}}{{end}}
+      </a>
+      {{if .Site.Tagline}}<p>{{.Site.Tagline}}</p>{{end}}
+      {{render_menu "footer"}}
     </footer>
   </body>
 </html>

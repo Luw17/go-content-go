@@ -39,6 +39,26 @@ button {
   font: inherit;
 }
 
+select {
+  box-sizing: border-box;
+  min-height: 2.75rem;
+  padding: 0.7rem 2.4rem 0.7rem 0.9rem;
+  border: 1px solid #c7d0de;
+  border-radius: 0.5rem;
+  background-color: #fff;
+  color: #172033;
+  font: inherit;
+  line-height: 1.35;
+}
+
+select:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+button:focus-visible {
+  outline: 3px solid rgb(65 105 225 / 25%);
+  outline-offset: 1px;
+}
+
 button {
   margin-top: 0.5rem;
   border: 0;
@@ -207,6 +227,30 @@ button {
   margin-top: 0;
 }
 
+.users-list {
+  margin-top: 1.5rem;
+  padding: 1.25rem 1.5rem;
+  border: 1px solid #e5e8ed;
+  border-radius: 0.65rem;
+  background: #fff;
+}
+
+.users-list h2 {
+  margin: 0 0 0.75rem;
+}
+
+.users-list .content-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.85rem 0.75rem;
+  border-bottom: 1px solid #e5e8ed;
+}
+
+.users-list .content-row:last-child {
+  border-bottom: 0;
+}
+
 .quick-links {
   display: flex;
   flex-wrap: wrap;
@@ -359,10 +403,16 @@ tbody tr:last-child td {
 .editor-form select,
 .editor-form textarea {
   width: 100%;
+  padding: 0.75rem 0.9rem;
   border: 1px solid #d0d5dd;
   border-radius: 0.4rem;
   background: #fff;
   color: #172033;
+}
+
+.editor-form select {
+  min-height: 2.9rem;
+  padding-right: 2.4rem;
 }
 
 .editor-form select[multiple] {
@@ -647,4 +697,179 @@ tbody tr:last-child td {
 
 .plugin-active {
   color: var(--color-success);
+}
+
+.editor-toolbar {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.editor-toolbar .button,
+.editor-panel > .button {
+  width: auto;
+  margin: 0.35rem 0;
+  background: #eef2ff;
+  color: #3156c9;
+}
+
+.featured-preview {
+  display: block;
+  width: 100%;
+  max-height: 12rem;
+  margin-top: 0.75rem;
+  border-radius: 0.45rem;
+  object-fit: cover;
+}
+
+.media-picker-dialog {
+  width: min(52rem, calc(100vw - 2rem));
+  max-height: min(80vh, 48rem);
+  padding: 1.25rem;
+  border: 1px solid #e5e8ed;
+  border-radius: 0.75rem;
+  color: #172033;
+}
+
+.media-picker-dialog::backdrop {
+  background: rgb(23 32 51 / 55%);
+}
+
+.media-picker-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.media-picker-heading h2 {
+  margin: 0;
+}
+
+.media-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
+  gap: 0.75rem;
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.media-picker-item {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.5rem;
+  border: 1px solid #e5e8ed;
+  border-radius: 0.45rem;
+  background: #fff;
+  color: #344054;
+  text-align: left;
+  cursor: pointer;
+}
+
+.media-picker-item img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 0.3rem;
+}
+
+.media-picker-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu-create {
+  margin-bottom: 1rem;
+}
+
+.menu-create .editor-form {
+  max-width: 36rem;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 1rem 0 0;
+}
+
+.menu-item-form {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 36rem;
+  margin: 1.5rem 0;
+}
+
+.menu-item-form > [data-menu-item-fields] {
+  display: grid;
+  grid-column: 1;
+  gap: 0.65rem;
+}
+
+.menu-item-form > [data-menu-item-fields][hidden] {
+  display: none;
+}
+
+.welcome-card > select {
+  display: block;
+  width: min(100%, 28rem);
+  margin: 0.5rem 0 1.5rem;
+}
+
+.menu-item-form > button {
+  grid-column: 1;
+}
+
+.menu-items {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0;
+  list-style: none;
+}
+
+.menu-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem;
+  border: 1px solid #e5e8ed;
+  border-radius: 0.45rem;
+}
+
+.menu-item-row > div:first-child {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.menu-item-row .muted {
+  overflow-wrap: anywhere;
+}
+
+.menu-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.menu-item-actions form,
+.menu-item-row + form {
+  width: auto;
+  max-width: none;
+  margin: 0;
+}
+
+.menu-item-actions .button,
+.button-danger {
+  width: auto;
+  margin: 0;
+}
+
+.button-danger {
+  background: #fff0f0;
+  color: #a32121;
+}
+
+@media (max-width: 42rem) {
+  .menu-item-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }

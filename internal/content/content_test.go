@@ -47,6 +47,25 @@ func TestContentLifecycleAndTaxonomies(t *testing.T) {
 	if len(post.Tags) != 2 {
 		t.Fatalf("created tags = %v, want duplicate tags removed", post.Tags)
 	}
+	sanitized, err := Save(ctx, db, Input{
+		Type: TypePost, Title: "Sanitized input",
+		Content: `<script>alert(1)</script><img src="x" onerror="alert(1)"><strong>safe</strong>`,
+		Status:  StatusDraft,
+	}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(sanitized.Content, "<script") || strings.Contains(sanitized.Content, "onerror") ||
+		!strings.Contains(sanitized.Content, "<strong>safe</strong>") {
+		t.Fatalf("saved editor content was not safely sanitized: %s", sanitized.Content)
+	}
+	rendered, err := RenderMarkdown(sanitized.Content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(rendered, "<script") || strings.Contains(rendered, "onerror") {
+		t.Fatalf("sanitized editor content rendered unsafely: %s", rendered)
+	}
 
 	categories, err := Categories(ctx, db)
 	if err != nil {
@@ -156,6 +175,13 @@ func TestSlugifyAndMarkdownSanitization(t *testing.T) {
 	if strings.Contains(rendered, "<script") || strings.Contains(rendered, "onerror") {
 		t.Errorf("rendered markdown contains unsafe HTML: %s", rendered)
 	}
+	image, err := RenderMarkdown("![Site logo](</uploads/site-logo.png>)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(image, `<img src="/uploads/site-logo.png" alt="Site logo"`) {
+		t.Errorf("rendered markdown did not preserve a safe inline image: %s", image)
+	}
 }
 
 func TestSaveRejectsInvalidInputs(t *testing.T) {
@@ -168,10 +194,18 @@ func TestSaveRejectsInvalidInputs(t *testing.T) {
 	if err := database.Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO media (filename, filepath, file_type, file_size, uploaded_at)
+		VALUES ('document.pdf', '/uploads/document.pdf', 'application/pdf', 100, 'now')
+	`); err != nil {
+		t.Fatal(err)
+	}
 	invalid := []Input{
 		{Type: TypePost, Title: "", Status: StatusDraft},
 		{Type: TypePage, Title: "Valid", Status: "scheduled"},
 		{Type: TypePost, Title: "Valid", Status: StatusDraft, FeaturedImage: "javascript:alert(1)"},
+		{Type: TypePost, Title: "Missing media", Status: StatusDraft, FeaturedImage: "/uploads/missing.png"},
+		{Type: TypePost, Title: "Document as image", Status: StatusDraft, FeaturedImage: "/uploads/document.pdf"},
 		{Type: "unknown", Title: "Valid", Status: StatusDraft},
 	}
 	for _, input := range invalid {

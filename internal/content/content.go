@@ -188,9 +188,70 @@ func Get(ctx context.Context, db *sql.DB, id int64, contentType string) (Item, e
 	return item, nil
 }
 
+func PublishedPageByID(ctx context.Context, db *sql.DB, id int64) (Item, error) {
+	if id <= 0 {
+		return Item{}, ErrNotFound
+	}
+	var item Item
+	err := db.QueryRowContext(ctx, `
+		SELECT posts.id, posts.content_type, posts.title, posts.slug, posts.content, posts.status,
+		       posts.featured_image, posts.created_at, posts.updated_at,
+		       COALESCE(posts.published_at, ''), COALESCE(users.username, '')
+		FROM posts
+		LEFT JOIN users ON users.id = posts.author_id
+		WHERE posts.id = ? AND posts.content_type = 'page' AND posts.status = 'published'
+		      AND posts.deleted_at IS NULL
+	`, id).Scan(
+		&item.ID, &item.Type, &item.Title, &item.Slug, &item.Content, &item.Status,
+		&item.FeaturedImage, &item.CreatedAt, &item.UpdatedAt, &item.PublishedAt, &item.Author,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Item{}, ErrNotFound
+	}
+	if err != nil {
+		return Item{}, fmt.Errorf("load published front page: %w", err)
+	}
+	return item, nil
+}
+
+func PublishedPages(ctx context.Context, db *sql.DB) ([]Item, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT posts.id, posts.content_type, posts.title, posts.slug, posts.content, posts.status,
+		       posts.featured_image, posts.created_at, posts.updated_at,
+		       COALESCE(posts.published_at, ''), COALESCE(users.username, '')
+		FROM posts
+		LEFT JOIN users ON users.id = posts.author_id
+		WHERE posts.content_type = 'page' AND posts.status = 'published' AND posts.deleted_at IS NULL
+		ORDER BY posts.title COLLATE NOCASE, posts.id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list published pages: %w", err)
+	}
+	defer rows.Close()
+	var pages []Item
+	for rows.Next() {
+		var item Item
+		if err := rows.Scan(
+			&item.ID, &item.Type, &item.Title, &item.Slug, &item.Content, &item.Status,
+			&item.FeaturedImage, &item.CreatedAt, &item.UpdatedAt, &item.PublishedAt, &item.Author,
+		); err != nil {
+			return nil, fmt.Errorf("scan published page: %w", err)
+		}
+		pages = append(pages, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read published pages: %w", err)
+	}
+	return pages, nil
+}
+
 func Save(ctx context.Context, db *sql.DB, input Input, authorID int64) (Item, error) {
 	input.Title = strings.TrimSpace(input.Title)
 	input.Content = strings.TrimSpace(input.Content)
+	if len(input.Content) > maxContentSize {
+		return Item{}, ErrInvalidInput
+	}
+	input.Content = htmlPolicy.Sanitize(input.Content)
 	input.FeaturedImage = strings.TrimSpace(input.FeaturedImage)
 	input.NewCategory = strings.TrimSpace(input.NewCategory)
 	input.Tags = strings.TrimSpace(input.Tags)
@@ -220,6 +281,16 @@ func Save(ctx context.Context, db *sql.DB, input Input, authorID int64) (Item, e
 		return Item{}, fmt.Errorf("begin content save: %w", err)
 	}
 	defer tx.Rollback()
+	if strings.HasPrefix(input.FeaturedImage, "/uploads/") {
+		var fileType string
+		err := tx.QueryRowContext(ctx, "SELECT file_type FROM media WHERE filepath = ?", input.FeaturedImage).Scan(&fileType)
+		if errors.Is(err, sql.ErrNoRows) || (err == nil && !strings.HasPrefix(strings.ToLower(fileType), "image/")) {
+			return Item{}, fmt.Errorf("%w: featured image must reference an indexed image", ErrInvalidInput)
+		}
+		if err != nil {
+			return Item{}, fmt.Errorf("validate featured image: %w", err)
+		}
+	}
 
 	if input.ID > 0 {
 		var exists bool

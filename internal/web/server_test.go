@@ -1,6 +1,7 @@
 package web
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"database/sql"
@@ -19,7 +20,176 @@ import (
 	"github.com/Luw17/go-content-go/internal/auth"
 	"github.com/Luw17/go-content-go/internal/content"
 	"github.com/Luw17/go-content-go/internal/database"
+	"github.com/Luw17/go-content-go/internal/navigation"
+	"github.com/Luw17/go-content-go/internal/siteconfig"
 )
+
+func TestNavigationMenuAdminAndPublicRendering(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	admin, err := auth.CreateInitialAdmin(ctx, db, "menus_admin", "a-very-secure-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := content.Save(ctx, db, content.Input{
+		Type: content.TypePage, Title: "About our site", Content: "About content", Status: content.StatusPublished,
+	}, admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, expiresAt, err := auth.CreateSession(ctx, db, admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := &http.Cookie{Name: sessionCookieName, Value: token, Path: "/", Expires: expiresAt}
+	handler, err := NewHandler(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	menuPage := getWithCookies(handler, "/admin/appearance/menus", session)
+	if menuPage.Code != http.StatusOK || !strings.Contains(menuPage.Body.String(), "Criar menu") {
+		t.Fatalf("menu management page = %d, %s", menuPage.Code, menuPage.Body.String())
+	}
+	csrfCookie := cookieNamed(t, menuPage, csrfCookieName)
+	created := postForm(handler, "/admin/appearance/menus", url.Values{
+		"csrf_token": {csrfFromBody(t, menuPage.Body.String())},
+		"name":       {"Header navigation"},
+		"location":   {navigation.LocationPrimary},
+	}, session, csrfCookie)
+	if created.Code != http.StatusSeeOther || !strings.Contains(created.Header().Get("Location"), "status=created") {
+		t.Fatalf("create menu = %d to %q", created.Code, created.Header().Get("Location"))
+	}
+	menuPage = getWithCookies(handler, created.Header().Get("Location"), session)
+	for _, expected := range []string{
+		`data-menu-item-fields="page"`,
+		`data-menu-item-fields="custom" hidden`,
+		`data-menu-item-fields="home" hidden`,
+		"Página inicial",
+	} {
+		if !strings.Contains(menuPage.Body.String(), expected) {
+			t.Errorf("menu editor is missing conditional option %q", expected)
+		}
+	}
+	csrfCookie = cookieNamed(t, menuPage, csrfCookieName)
+	menuID := menuPageBodyMenuID(t, menuPage.Body.String())
+	addedPage := postForm(handler, "/admin/appearance/menus/"+strconv.FormatInt(menuID, 10)+"/items", url.Values{
+		"csrf_token": {csrfFromBody(t, menuPage.Body.String())},
+		"type":       {navigation.TypePage},
+		"page_id":    {strconv.FormatInt(page.ID, 10)},
+		"label":      {"About"},
+	}, session, csrfCookie)
+	if addedPage.Code != http.StatusSeeOther || !strings.Contains(addedPage.Header().Get("Location"), "item-added") {
+		t.Fatalf("add page menu item = %d to %q", addedPage.Code, addedPage.Header().Get("Location"))
+	}
+	menuPage = getWithCookies(handler, addedPage.Header().Get("Location"), session)
+	csrfCookie = cookieNamed(t, menuPage, csrfCookieName)
+	addedLink := postForm(handler, "/admin/appearance/menus/"+strconv.FormatInt(menuID, 10)+"/items", url.Values{
+		"csrf_token": {csrfFromBody(t, menuPage.Body.String())},
+		"type":       {navigation.TypeCustom},
+		"label":      {"Docs"},
+		"url":        {"https://docs.example.test"},
+	}, session, csrfCookie)
+	if addedLink.Code != http.StatusSeeOther {
+		t.Fatalf("add custom menu item = %d, %s", addedLink.Code, addedLink.Body.String())
+	}
+	menuPage = getWithCookies(handler, addedLink.Header().Get("Location"), session)
+	homeLink := postForm(handler, "/admin/appearance/menus/"+strconv.FormatInt(menuID, 10)+"/items", url.Values{
+		"csrf_token": {csrfFromBody(t, menuPage.Body.String())},
+		"type":       {"home"},
+		"label":      {"Start here"},
+	}, session, cookieNamed(t, menuPage, csrfCookieName))
+	if homeLink.Code != http.StatusSeeOther {
+		t.Fatalf("add custom homepage link = %d, %s", homeLink.Code, homeLink.Body.String())
+	}
+	home := httptest.NewRecorder()
+	handler.ServeHTTP(home, httptest.NewRequest(http.MethodGet, "/", nil))
+	if home.Code != http.StatusOK || !strings.Contains(home.Body.String(), `href="/`+page.Slug+`">About</a>`) ||
+		!strings.Contains(home.Body.String(), `href="https://docs.example.test">Docs</a>`) ||
+		!strings.Contains(home.Body.String(), `href="/">Start here</a>`) {
+		t.Fatalf("menu was not rendered in the public theme: %d %s", home.Code, home.Body.String())
+	}
+	pages := getWithCookies(handler, "/admin/pages", session)
+	trash := postForm(handler, "/admin/content/"+strconv.FormatInt(page.ID, 10)+"/trash", url.Values{
+		"csrf_token":   {csrfFromBody(t, pages.Body.String())},
+		"content_type": {content.TypePage},
+	}, session, cookieNamed(t, pages, csrfCookieName))
+	if trash.Code != http.StatusSeeOther {
+		t.Fatalf("trash menu-linked page = %d, %s", trash.Code, trash.Body.String())
+	}
+	home = httptest.NewRecorder()
+	handler.ServeHTTP(home, httptest.NewRequest(http.MethodGet, "/", nil))
+	if home.Code != http.StatusOK || strings.Contains(home.Body.String(), `>About</a>`) ||
+		!strings.Contains(home.Body.String(), `>Docs</a>`) {
+		t.Fatalf("deleted page menu item handling = %d %s", home.Code, home.Body.String())
+	}
+}
+
+func TestEditorMediaPickerAndFeaturedImageValidation(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	admin, err := auth.CreateInitialAdmin(ctx, db, "picker_admin", "a-very-secure-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO media (filename, filepath, file_type, file_size, alt_text, uploaded_at)
+		VALUES
+			('cover.png', '/uploads/cover.png', 'image/png', 120, 'A cover', 'now'),
+			('guide.pdf', '/uploads/guide.pdf', 'application/pdf', 120, '', 'now')
+	`); err != nil {
+		t.Fatal(err)
+	}
+	token, expiresAt, err := auth.CreateSession(ctx, db, admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := &http.Cookie{Name: sessionCookieName, Value: token, Path: "/", Expires: expiresAt}
+	handler, err := NewHandler(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	editor := getWithCookies(handler, "/admin/posts/new", session)
+	if editor.Code != http.StatusOK || !strings.Contains(editor.Body.String(), "Inserir mídia") ||
+		!strings.Contains(editor.Body.String(), "Selecionar imagem destacada") ||
+		!strings.Contains(editor.Body.String(), `id="media-picker-dialog"`) {
+		t.Fatalf("editor picker controls = %d %s", editor.Code, editor.Body.String())
+	}
+	picker := getWithCookies(handler, "/admin/media/picker?mode=inline", session)
+	if picker.Code != http.StatusOK || !strings.Contains(picker.Body.String(), "/uploads/cover.png") ||
+		strings.Contains(picker.Body.String(), "guide.pdf") || !strings.Contains(picker.Body.String(), `data-mode="inline"`) {
+		t.Fatalf("inline media picker = %d %s", picker.Code, picker.Body.String())
+	}
+	csrfCookie := cookieNamed(t, editor, csrfCookieName)
+	invalid := postForm(handler, "/admin/posts/save", url.Values{
+		"csrf_token":     {csrfFromBody(t, editor.Body.String())},
+		"title":          {"Invalid featured media"},
+		"content":        {"Draft"},
+		"status":         {content.StatusDraft},
+		"featured_image": {"/uploads/missing.png"},
+	}, session, csrfCookie)
+	if invalid.Code != http.StatusUnprocessableEntity || !strings.Contains(invalid.Body.String(), "imagem existente") {
+		t.Fatalf("invalid featured image = %d %s", invalid.Code, invalid.Body.String())
+	}
+	editor = getWithCookies(handler, "/admin/posts/new", session)
+	csrfCookie = cookieNamed(t, editor, csrfCookieName)
+	saved := postForm(handler, "/admin/posts/save", url.Values{
+		"csrf_token":     {csrfFromBody(t, editor.Body.String())},
+		"title":          {"Valid featured media"},
+		"content":        {"Image chosen in picker"},
+		"status":         {content.StatusDraft},
+		"featured_image": {"/uploads/cover.png"},
+	}, session, csrfCookie)
+	if saved.Code != http.StatusSeeOther {
+		t.Fatalf("save selected featured image = %d %s", saved.Code, saved.Body.String())
+	}
+	var storedPath string
+	if err := db.QueryRowContext(ctx, "SELECT featured_image FROM posts WHERE title = 'Valid featured media'").Scan(&storedPath); err != nil {
+		t.Fatal(err)
+	}
+	if storedPath != "/uploads/cover.png" {
+		t.Fatalf("stored featured image = %q", storedPath)
+	}
+}
 
 func TestHandlerServesEmbeddedPagesAndAssets(t *testing.T) {
 	db := newTestDB(t)
@@ -172,6 +342,146 @@ func TestPublicAPIIsRateLimited(t *testing.T) {
 	}
 }
 
+func TestGlobalSiteIdentityAndStaticFrontPageSettings(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	user, err := auth.CreateInitialAdmin(ctx, db, "site_settings_admin", "a-very-secure-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := content.Save(ctx, db, content.Input{
+		Type: content.TypePage, Title: "Welcome page", Content: "The static front page content.",
+		Status: content.StatusPublished,
+	}, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := content.Save(ctx, db, content.Input{
+		Type: content.TypePost, Title: "News post", Content: "A recent post.", Status: content.StatusPublished,
+	}, user.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO media (filename, filepath, file_type, file_size, alt_text, uploaded_at)
+		VALUES ('logo.png', '/uploads/logo.png', 'image/png', 100, 'Site logo', 'now')
+	`); err != nil {
+		t.Fatal(err)
+	}
+	token, expiresAt, err := auth.CreateSession(ctx, db, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionCookie := &http.Cookie{Name: sessionCookieName, Value: token, Path: "/", Expires: expiresAt}
+	handler, err := NewHandler(db, Options{UploadDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defaultHome := httptest.NewRecorder()
+	handler.ServeHTTP(defaultHome, httptest.NewRequest(http.MethodGet, "/", nil))
+	if defaultHome.Code != http.StatusOK || !strings.Contains(defaultHome.Body.String(), "News post") ||
+		strings.Contains(defaultHome.Body.String(), "The static front page content.") {
+		t.Fatalf("default posts home = %d, %s", defaultHome.Code, defaultHome.Body.String())
+	}
+	settingsPage := getWithCookies(handler, "/admin/settings", sessionCookie)
+	if settingsPage.Code != http.StatusOK || !strings.Contains(settingsPage.Body.String(), "Identidade do site") ||
+		!strings.Contains(settingsPage.Body.String(), "Welcome page") {
+		t.Fatalf("settings page = %d, %s", settingsPage.Code, settingsPage.Body.String())
+	}
+	csrfCookie := cookieNamed(t, settingsPage, csrfCookieName)
+	identity := postForm(handler, "/admin/settings/save", url.Values{
+		"csrf_token":       {csrfFromBody(t, settingsPage.Body.String())},
+		"site_title":       {"<script>My Site</script>"},
+		"site_tagline":     {"A custom site description"},
+		"site_logo":        {"/uploads/logo.png"},
+		"show_on_front":    {siteconfig.FrontPosts},
+		"page_on_front":    {"0"},
+		"home_intro_title": {"Welcome to my site"},
+		"home_posts_title": {"Latest articles"},
+	}, sessionCookie, csrfCookie)
+	if identity.Code != http.StatusSeeOther || identity.Header().Get("Location") != "/admin/settings?saved=1" {
+		t.Fatalf("save site identity = %d to %q, %s", identity.Code, identity.Header().Get("Location"), identity.Body.String())
+	}
+	updatedHome := httptest.NewRecorder()
+	handler.ServeHTTP(updatedHome, httptest.NewRequest(http.MethodGet, "/", nil))
+	body := updatedHome.Body.String()
+	if updatedHome.Code != http.StatusOK || !strings.Contains(body, "&lt;script&gt;My Site&lt;/script&gt;") ||
+		strings.Contains(body, "<script>My Site") || !strings.Contains(body, "A custom site description") ||
+		!strings.Contains(body, "Welcome to my site") || !strings.Contains(body, "Latest articles") ||
+		!strings.Contains(body, `src="/uploads/logo.png"`) || !strings.Contains(body, "News post") {
+		t.Fatalf("updated identity was not rendered safely: %d %s", updatedHome.Code, body)
+	}
+
+	settingsPage = getWithCookies(handler, "/admin/settings", sessionCookie)
+	csrfCookie = cookieNamed(t, settingsPage, csrfCookieName)
+	staticFront := postForm(handler, "/admin/settings/save", url.Values{
+		"csrf_token":       {csrfFromBody(t, settingsPage.Body.String())},
+		"site_title":       {"<script>My Site</script>"},
+		"site_tagline":     {"A custom site description"},
+		"site_logo":        {"/uploads/logo.png"},
+		"show_on_front":    {siteconfig.FrontPage},
+		"page_on_front":    {strconv.FormatInt(page.ID, 10)},
+		"home_intro_title": {"Welcome to my site"},
+		"home_posts_title": {"Latest articles"},
+	}, sessionCookie, csrfCookie)
+	if staticFront.Code != http.StatusSeeOther {
+		t.Fatalf("save static front page = %d, %s", staticFront.Code, staticFront.Body.String())
+	}
+	staticHome := httptest.NewRecorder()
+	handler.ServeHTTP(staticHome, httptest.NewRequest(http.MethodGet, "/", nil))
+	if staticHome.Code != http.StatusOK || !strings.Contains(staticHome.Body.String(), "The static front page content.") ||
+		strings.Contains(staticHome.Body.String(), "News post") {
+		t.Fatalf("static front page rendering = %d, %s", staticHome.Code, staticHome.Body.String())
+	}
+
+	settingsPage = getWithCookies(handler, "/admin/settings", sessionCookie)
+	csrfCookie = cookieNamed(t, settingsPage, csrfCookieName)
+	invalidLogo := postForm(handler, "/admin/settings/save", url.Values{
+		"csrf_token":       {csrfFromBody(t, settingsPage.Body.String())},
+		"site_title":       {"My Site"},
+		"site_tagline":     {"Tagline"},
+		"site_logo":        {"javascript:alert(1)"},
+		"show_on_front":    {siteconfig.FrontPage},
+		"page_on_front":    {strconv.FormatInt(page.ID, 10)},
+		"home_intro_title": {"Welcome to my site"},
+		"home_posts_title": {"Latest articles"},
+	}, sessionCookie, csrfCookie)
+	if invalidLogo.Code != http.StatusSeeOther || invalidLogo.Header().Get("Location") != "/admin/settings?error=invalid" {
+		t.Fatalf("invalid logo submission = %d to %q", invalidLogo.Code, invalidLogo.Header().Get("Location"))
+	}
+	stored, err := siteconfig.Load(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Title != "<script>My Site</script>" || stored.ShowOnFront != siteconfig.FrontPage || stored.PageOnFront != page.ID {
+		t.Fatalf("invalid update changed settings: %+v", stored)
+	}
+
+	settingsPage = getWithCookies(handler, "/admin/settings", sessionCookie)
+	csrfCookie = cookieNamed(t, settingsPage, csrfCookieName)
+	withoutTagline := postForm(handler, "/admin/settings/save", url.Values{
+		"csrf_token":       {csrfFromBody(t, settingsPage.Body.String())},
+		"site_title":       {"My Site"},
+		"site_tagline":     {""},
+		"site_logo":        {""},
+		"show_on_front":    {siteconfig.FrontPosts},
+		"page_on_front":    {"0"},
+		"home_intro_title": {"Welcome"},
+		"home_posts_title": {"Recent posts"},
+	}, sessionCookie, csrfCookie)
+	if withoutTagline.Code != http.StatusSeeOther {
+		t.Fatalf("save empty tagline = %d, %s", withoutTagline.Code, withoutTagline.Body.String())
+	}
+	emptyTaglineHome := httptest.NewRecorder()
+	handler.ServeHTTP(emptyTaglineHome, httptest.NewRequest(http.MethodGet, "/", nil))
+	if emptyTaglineHome.Code != http.StatusOK ||
+		strings.Contains(emptyTaglineHome.Body.String(), `name="description"`) ||
+		strings.Contains(emptyTaglineHome.Body.String(), `class="intro-copy"`) {
+		t.Fatalf("empty tagline should not render empty description elements: %d %s",
+			emptyTaglineHome.Code, emptyTaglineHome.Body.String())
+	}
+}
+
 func TestAdministratorBackupAndMaintenanceControls(t *testing.T) {
 	ctx := context.Background()
 	db := newTestDB(t)
@@ -287,13 +597,153 @@ func TestAdminSetupLoginAndLogoutFlow(t *testing.T) {
 	if invalidLogin.Code != http.StatusUnauthorized || !strings.Contains(invalidLogin.Body.String(), "Usuário ou senha inválidos.") {
 		t.Fatalf("invalid login response = %d, %q", invalidLogin.Code, invalidLogin.Body.String())
 	}
+	oldSession, oldExpires, err := auth.CreateSession(context.Background(), db, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldSessionCookie := &http.Cookie{Name: sessionCookieName, Value: oldSession, Expires: oldExpires}
 	loginResponse := postForm(handler, "/admin/login", url.Values{
 		"csrf_token": {loginToken},
 		"username":   {"site_admin"},
 		"password":   {"correct-horse-battery"},
-	}, loginCSRF)
+	}, loginCSRF, oldSessionCookie)
 	if loginResponse.Code != http.StatusSeeOther || loginResponse.Header().Get("Location") != "/admin/" {
 		t.Fatalf("login POST = %d to %q, want redirect to /admin/", loginResponse.Code, loginResponse.Header().Get("Location"))
+	}
+	if _, authenticated, err := auth.SessionUser(context.Background(), db, oldSession); err != nil || authenticated {
+		t.Fatalf("previous session remained valid after login rotation: authenticated=%v err=%v", authenticated, err)
+	}
+	newSessionCookie := cookieNamed(t, loginResponse, sessionCookieName)
+	if newSessionCookie.Value == oldSession {
+		t.Fatal("login did not rotate the session ID")
+	}
+}
+
+func TestLoginCooldownSecurityHeadersAndInternalPathBlocking(t *testing.T) {
+	db := newTestDB(t)
+	if _, err := auth.CreateInitialAdmin(context.Background(), db, "security_admin", "a-very-secure-password"); err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewHandler(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loginPage := getWithCookies(handler, "/admin/login")
+	if loginPage.Code != http.StatusOK {
+		t.Fatalf("login page = %d, %s", loginPage.Code, loginPage.Body.String())
+	}
+	for name, want := range map[string]string{
+		"Content-Security-Policy": securityContentPolicy,
+		"X-Frame-Options":         "SAMEORIGIN",
+		"X-Content-Type-Options":  "nosniff",
+		"Referrer-Policy":         "strict-origin-when-cross-origin",
+	} {
+		if got := loginPage.Header().Get(name); got != want {
+			t.Errorf("%s = %q, want %q", name, got, want)
+		}
+	}
+	csrfCookie := cookieNamed(t, loginPage, csrfCookieName)
+	csrfToken := csrfFromBody(t, loginPage.Body.String())
+	for attempt := 1; attempt <= 5; attempt++ {
+		response := postForm(handler, "/admin/login", url.Values{
+			"csrf_token": {csrfToken},
+			"username":   {"security_admin"},
+			"password":   {"incorrect-password"},
+		}, csrfCookie)
+		if response.Code != http.StatusUnauthorized {
+			t.Fatalf("failed login attempt %d = %d, %s", attempt, response.Code, response.Body.String())
+		}
+	}
+	blocked := postForm(handler, "/admin/login", url.Values{
+		"csrf_token": {csrfToken},
+		"username":   {"security_admin"},
+		"password":   {"incorrect-password"},
+	}, csrfCookie)
+	if blocked.Code != http.StatusTooManyRequests || blocked.Header().Get("Retry-After") == "" {
+		t.Fatalf("login after five failures = %d Retry-After=%q", blocked.Code, blocked.Header().Get("Retry-After"))
+	}
+	if retryAfter, err := strconv.Atoi(blocked.Header().Get("Retry-After")); err != nil || retryAfter < 14*60 {
+		t.Fatalf("login cooldown Retry-After = %q, want at least 14 minutes", blocked.Header().Get("Retry-After"))
+	}
+	for _, path := range []string{
+		"/data/private.db", "/backups/backup.db", "/.git/config", "/logs/server.log", "/internal/config.go",
+	} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if response.Code != http.StatusNotFound {
+			t.Errorf("internal path %q response = %d, want 404", path, response.Code)
+		}
+	}
+}
+
+func TestSessionAndCSRFCookiesAreSecureOverTLS(t *testing.T) {
+	db := newTestDB(t)
+	if _, err := auth.CreateInitialAdmin(context.Background(), db, "tls_admin", "a-very-secure-password"); err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewHandler(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loginRequest := httptest.NewRequest(http.MethodGet, "https://cms.example.test/admin/login", nil)
+	loginPage := httptest.NewRecorder()
+	handler.ServeHTTP(loginPage, loginRequest)
+	csrfCookie := cookieNamed(t, loginPage, csrfCookieName)
+	if !csrfCookie.Secure || !csrfCookie.HttpOnly || csrfCookie.SameSite != http.SameSiteStrictMode {
+		t.Fatalf("HTTPS CSRF cookie flags = %+v", csrfCookie)
+	}
+	values := url.Values{
+		"csrf_token": {csrfFromBody(t, loginPage.Body.String())},
+		"username":   {"tls_admin"},
+		"password":   {"a-very-secure-password"},
+	}
+	request := httptest.NewRequest(http.MethodPost, "https://cms.example.test/admin/login", strings.NewReader(values.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.AddCookie(csrfCookie)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusSeeOther {
+		t.Fatalf("TLS login = %d, %s", response.Code, response.Body.String())
+	}
+	sessionCookie := cookieNamed(t, response, sessionCookieName)
+	if !sessionCookie.Secure || !sessionCookie.HttpOnly || sessionCookie.SameSite != http.SameSiteStrictMode {
+		t.Fatalf("HTTPS session cookie flags = %+v", sessionCookie)
+	}
+}
+
+func TestAdminMutationCSRFEnforcedAndUploadRateLimited(t *testing.T) {
+	db := newTestDB(t)
+	user, err := auth.CreateInitialAdmin(context.Background(), db, "hardening_admin", "a-very-secure-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, expiresAt, err := auth.CreateSession(context.Background(), db, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionCookie := &http.Cookie{Name: sessionCookieName, Value: session, Expires: expiresAt}
+	handler, err := NewHandler(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adminPage := getWithCookies(handler, "/admin/settings", sessionCookie)
+	if adminPage.Code != http.StatusOK {
+		t.Fatalf("settings page = %d, %s", adminPage.Code, adminPage.Body.String())
+	}
+	csrfCookie := cookieNamed(t, adminPage, csrfCookieName)
+	missingCSRF := postForm(handler, "/admin/settings/optimize", url.Values{}, sessionCookie)
+	if missingCSRF.Code != http.StatusForbidden {
+		t.Fatalf("admin mutation without CSRF = %d, want 403", missingCSRF.Code)
+	}
+	for attempt := 1; attempt <= 4; attempt++ {
+		response := postMultipartForm(t, handler, "/admin/media/upload", csrfFromBody(t, adminPage.Body.String()),
+			"invalid.png", []byte("not an image"), "", sessionCookie, csrfCookie)
+		if attempt <= 3 && response.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("upload attempt %d = %d, want invalid-file response", attempt, response.Code)
+		}
+		if attempt == 4 && response.Code != http.StatusTooManyRequests {
+			t.Fatalf("fourth upload request = %d, want rate limited", response.Code)
+		}
 	}
 }
 
@@ -993,6 +1443,104 @@ func TestPluginAdministrationActivationAndContentFilter(t *testing.T) {
 	}
 }
 
+func TestThemeAndPluginZipInstallation(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	user, err := auth.CreateInitialAdmin(ctx, db, "package_admin", "a-very-secure-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, expiresAt, err := auth.CreateSession(ctx, db, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionCookie := &http.Cookie{Name: sessionCookieName, Value: session, Expires: expiresAt}
+	themeRoot, pluginRoot := t.TempDir(), t.TempDir()
+	handler, err := NewHandler(db, Options{
+		UploadDir: t.TempDir(), ThemeDir: themeRoot, PluginDir: pluginRoot,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	themeInstallPage := getWithCookies(handler, "/admin/appearance/install", sessionCookie)
+	if themeInstallPage.Code != http.StatusOK || !strings.Contains(themeInstallPage.Body.String(), `action="/admin/appearance/install"`) {
+		t.Fatalf("theme install page = %d, %s", themeInstallPage.Code, themeInstallPage.Body.String())
+	}
+	themeCSRF := csrfFromBody(t, themeInstallPage.Body.String())
+	themeCSRFToken := cookieNamed(t, themeInstallPage, csrfCookieName)
+	themeArchive := makePackageZip(t, map[string]string{
+		"uploaded-theme/index.html":  "<h1>Uploaded</h1>",
+		"uploaded-theme/single.html": "<h1>{{.Item.Title}}</h1>",
+		"uploaded-theme/page.html":   "<h1>{{.Item.Title}}</h1>",
+		"uploaded-theme/404.html":    "<h1>Not found</h1>",
+		"uploaded-theme/style.css":   "body { color: blue; }",
+	})
+	themeUpload := postPackageUpload(t, handler, "/admin/appearance/install", "uploaded-theme.zip", themeArchive, themeCSRF, sessionCookie, themeCSRFToken)
+	if themeUpload.Code != http.StatusSeeOther || themeUpload.Header().Get("Location") != "/admin/appearance?installed=1" {
+		t.Fatalf("theme upload = %d to %q, %s", themeUpload.Code, themeUpload.Header().Get("Location"), themeUpload.Body.String())
+	}
+	appearance := getWithCookies(handler, themeUpload.Header().Get("Location"), sessionCookie)
+	if appearance.Code != http.StatusOK || !strings.Contains(appearance.Body.String(), "uploaded-theme") ||
+		!strings.Contains(appearance.Body.String(), "Tema instalado") {
+		t.Fatalf("installed theme missing from appearance page = %d, %s", appearance.Code, appearance.Body.String())
+	}
+	duplicateTheme := postPackageUpload(t, handler, "/admin/appearance/install", "uploaded-theme.zip", themeArchive, csrfFromBody(t, themeInstallPage.Body.String()), sessionCookie, themeCSRFToken)
+	if duplicateTheme.Code != http.StatusSeeOther || duplicateTheme.Header().Get("Location") != "/admin/appearance?install_error=exists" {
+		t.Fatalf("duplicate theme upload = %d to %q", duplicateTheme.Code, duplicateTheme.Header().Get("Location"))
+	}
+	traversalArchive := makePackageZip(t, map[string]string{"../outside.txt": "not written"})
+	traversalUpload := postPackageUpload(t, handler, "/admin/appearance/install", "unsafe.zip", traversalArchive, themeCSRF, sessionCookie, themeCSRFToken)
+	if traversalUpload.Code != http.StatusSeeOther || traversalUpload.Header().Get("Location") != "/admin/appearance?install_error=invalid" {
+		t.Fatalf("traversal theme upload = %d to %q", traversalUpload.Code, traversalUpload.Header().Get("Location"))
+	}
+	if _, err := os.Stat(filepath.Join(themeRoot, "outside.txt")); !os.IsNotExist(err) {
+		t.Fatalf("traversal archive escaped theme root: %v", err)
+	}
+
+	pluginInstallPage := getWithCookies(handler, "/admin/plugins/install", sessionCookie)
+	if pluginInstallPage.Code != http.StatusOK || !strings.Contains(pluginInstallPage.Body.String(), `action="/admin/plugins/install"`) {
+		t.Fatalf("plugin install page = %d, %s", pluginInstallPage.Code, pluginInstallPage.Body.String())
+	}
+	pluginArchive := makePackageZip(t, map[string]string{
+		"sample-plugin-main/plugin.json": `{"id":"sample-plugin","name":"Sample Plugin","version":"1.0","main_file":"main.lua","hooks":["content:render"]}`,
+		"sample-plugin-main/main.lua":    `return { hooks = { ["content:render"] = function(value) return value end } }`,
+	})
+	pluginUpload := postPackageUpload(t, handler, "/admin/plugins/install", "sample-plugin.zip", pluginArchive,
+		csrfFromBody(t, pluginInstallPage.Body.String()), sessionCookie, cookieNamed(t, pluginInstallPage, csrfCookieName))
+	if pluginUpload.Code != http.StatusSeeOther || pluginUpload.Header().Get("Location") != "/admin/plugins?installed=1" {
+		t.Fatalf("plugin upload = %d to %q, %s", pluginUpload.Code, pluginUpload.Header().Get("Location"), pluginUpload.Body.String())
+	}
+	pluginList := getWithCookies(handler, pluginUpload.Header().Get("Location"), sessionCookie)
+	if pluginList.Code != http.StatusOK || !strings.Contains(pluginList.Body.String(), "Sample Plugin") ||
+		!strings.Contains(pluginList.Body.String(), "Plugin instalado") || !strings.Contains(pluginList.Body.String(), "Inativo") {
+		t.Fatalf("installed plugin missing from refreshed list = %d, %s", pluginList.Code, pluginList.Body.String())
+	}
+	withoutCSRF := postPackageUpload(t, handler, "/admin/plugins/install", "sample-plugin.zip", pluginArchive, "", sessionCookie, cookieNamed(t, pluginInstallPage, csrfCookieName))
+	if withoutCSRF.Code != http.StatusForbidden {
+		t.Fatalf("plugin upload without CSRF = %d, want forbidden", withoutCSRF.Code)
+	}
+}
+
+func TestAPIRateLimitCanBeConfigured(t *testing.T) {
+	db := newTestDB(t)
+	handler, err := NewHandler(db, Options{APIRateLimit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 1; attempt <= 2; attempt++ {
+		request := httptest.NewRequest(http.MethodGet, "/api/v1/posts", nil)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if attempt == 1 && response.Code != http.StatusOK {
+			t.Fatalf("first API request = %d, %s", response.Code, response.Body.String())
+		}
+		if attempt == 2 && response.Code != http.StatusTooManyRequests {
+			t.Fatalf("second API request = %d, want rate limited", response.Code)
+		}
+	}
+}
+
 func newTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := database.Open(context.Background(), ":memory:")
@@ -1021,6 +1569,57 @@ func getWithCookies(handler http.Handler, path string, cookies ...*http.Cookie) 
 	return response
 }
 
+func makePackageZip(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+	var archive bytes.Buffer
+	writer := zip.NewWriter(&archive)
+	for filename, contents := range files {
+		entry, err := writer.Create(filename)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write([]byte(contents)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return archive.Bytes()
+}
+
+func postPackageUpload(t *testing.T, handler http.Handler, path, filename string, archive []byte, csrf string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if csrf != "" {
+		if err := writer.WriteField("csrf_token", csrf); err != nil {
+			t.Fatal(err)
+		}
+	}
+	part, err := writer.CreateFormFile("package", filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(archive); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, path, &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	if strings.HasPrefix(path, "/admin/plugins/") {
+		request.RemoteAddr = "192.0.2.2:1234"
+	}
+	for _, cookie := range cookies {
+		request.AddCookie(cookie)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	return response
+}
+
 func cookieNamed(t *testing.T, response *httptest.ResponseRecorder, name string) *http.Cookie {
 	t.Helper()
 	for _, cookie := range response.Result().Cookies() {
@@ -1041,6 +1640,21 @@ func csrfFromBody(t *testing.T, body string) string {
 		t.Fatalf("response body does not contain a CSRF form token: %s", body)
 	}
 	return match[1]
+}
+
+var menuActionPattern = regexp.MustCompile(`/admin/appearance/menus/([0-9]+)/items`)
+
+func menuPageBodyMenuID(t *testing.T, body string) int64 {
+	t.Helper()
+	match := menuActionPattern.FindStringSubmatch(body)
+	if len(match) != 2 {
+		t.Fatalf("menu page does not contain selected menu action: %s", body)
+	}
+	id, err := strconv.ParseInt(match[1], 10, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
 }
 
 func postForm(handler http.Handler, path string, values url.Values, cookies ...*http.Cookie) *httptest.ResponseRecorder {

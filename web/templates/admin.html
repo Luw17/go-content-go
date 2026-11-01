@@ -17,6 +17,7 @@
         <a href="/admin/pages">Páginas</a>
         <a href="/admin/media">Mídias</a>
         <a href="/admin/appearance">Aparência</a>
+        <a href="/admin/appearance/menus">Menus</a>
         <a href="/admin/plugins">Plugins</a>
         <a href="/admin/users">Usuários</a>
         <a href="/admin/settings">Configurações</a>
@@ -79,6 +80,10 @@
               <label for="slug">Slug</label>
               <div class="slug-field"><span>/</span><input id="slug" name="slug" type="text" maxlength="100" value="{{.Item.Slug}}" placeholder="gerado-a-partir-do-titulo" pattern="[a-z0-9]+(?:-[a-z0-9]+)*"></div>
               <label for="content">Conteúdo <span class="muted">Markdown</span></label>
+              <div class="editor-toolbar">
+                <button class="button" type="button" data-picker-open="inline"
+                  hx-get="/admin/media/picker?mode=inline" hx-target="#media-picker-content" hx-swap="innerHTML">Inserir mídia</button>
+              </div>
               <textarea id="content" name="content" rows="18" maxlength="1048576"
                 hx-post="/admin/preview" hx-trigger="keyup changed delay:500ms" hx-include="closest form"
                 hx-target="#markdown-preview" hx-swap="innerHTML">{{.Item.Content}}</textarea>
@@ -104,9 +109,14 @@
               </section>
               <section class="editor-panel">
                 <h2>Imagem destacada</h2>
-                <label for="featured_image">URL ou caminho em /uploads</label>
+                <label for="featured_image">Caminho da imagem ou URL externa</label>
                 <input id="featured_image" name="featured_image" type="text" maxlength="2048"
                   value="{{.Item.FeaturedImage}}" placeholder="https://… ou /uploads/…">
+                <button class="button" type="button" data-picker-open="featured"
+                  hx-get="/admin/media/picker?mode=featured" hx-target="#media-picker-content" hx-swap="innerHTML">Selecionar imagem destacada</button>
+                <div id="featured-image-preview">
+                  {{if .Item.FeaturedImage}}<img class="featured-preview" src="{{.Item.FeaturedImage}}" alt="Prévia da imagem destacada">{{else}}<p class="muted">Nenhuma imagem selecionada.</p>{{end}}
+                </div>
               </section>
               {{if eq .ContentType "post"}}
                 <section class="editor-panel">
@@ -132,6 +142,15 @@
                 </section>
               {{end}}
             </aside>
+            <dialog id="media-picker-dialog" class="media-picker-dialog" aria-labelledby="media-picker-title">
+              <div class="media-picker-heading">
+                <h2 id="media-picker-title">Selecionar mídia</h2>
+                <button class="button button-quiet" type="button" data-picker-close aria-label="Fechar seletor">Fechar</button>
+              </div>
+              <div id="media-picker-content" class="media-picker-content" aria-live="polite">
+                <p class="muted">Carregando biblioteca de imagens…</p>
+              </div>
+            </dialog>
           </form>
         {{else if eq .Mode "media"}}
           <div class="page-heading">
@@ -144,6 +163,7 @@
         {{else if eq .Mode "appearance"}}
           <div class="page-heading">
             <div><p class="eyebrow">Personalização</p><h1>Aparência</h1></div>
+            <a class="button button-primary" href="/admin/appearance/install">Instalar tema</a>
           </div>
           <p class="muted">Escolha o tema que renderiza as páginas públicas do site.</p>
           <section class="theme-grid">
@@ -170,9 +190,117 @@
               <p class="empty-state">Nenhum tema encontrado. O tema padrão embutido continuará ativo.</p>
             {{end}}
           </section>
+        {{else if eq .Mode "theme-install"}}
+          <div class="page-heading">
+            <div><p class="eyebrow">Personalização</p><h1>Instalar tema</h1></div>
+            <a class="button" href="/admin/appearance">Voltar para temas</a>
+          </div>
+          <section class="welcome-card">
+            <p>Envie um arquivo ZIP de até 20 MB. O pacote deve conter os templates obrigatórios do tema e, opcionalmente, um diretório raiz com o nome do tema.</p>
+            <form class="editor-form" method="post" action="/admin/appearance/install" enctype="multipart/form-data">
+              <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+              <label for="theme-package">Arquivo ZIP do tema</label>
+              <input id="theme-package" name="package" type="file" accept=".zip,application/zip" required>
+              <button class="button button-primary" type="submit">Enviar e instalar tema</button>
+            </form>
+          </section>
+        {{else if eq .Mode "menus"}}
+          <div class="page-heading">
+            <div><p class="eyebrow">Navegação</p><h1>Menus</h1></div>
+          </div>
+          <section class="welcome-card menu-create">
+            <h2>Criar menu</h2>
+            <form class="editor-form" method="post" action="/admin/appearance/menus">
+              <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+              <label for="menu-name">Nome do menu</label>
+              <input id="menu-name" name="name" type="text" maxlength="100" required>
+              <label for="menu-location">Localização do tema</label>
+              <select id="menu-location" name="location" required>
+                <option value="primary">Menu principal</option>
+                <option value="footer">Rodapé</option>
+              </select>
+              <button class="button button-primary" type="submit">Criar menu</button>
+            </form>
+          </section>
+          {{if .Menus}}
+            <section class="welcome-card">
+              <label for="menu-select">Menu para editar</label>
+              <select id="menu-select" data-menu-select>
+                {{range .Menus}}
+                  <option value="{{.ID}}" {{if eq $.SelectedMenu.ID .ID}}selected{{end}}>{{.Name}} — {{.Location}}</option>
+                {{end}}
+              </select>
+              <h2>{{.SelectedMenu.Name}}</h2>
+              <p class="muted">Localização: {{.SelectedMenu.Location}}</p>
+              <form method="post" action="/admin/appearance/menus/{{.SelectedMenu.ID}}/items" class="editor-form menu-item-form">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <label for="menu-item-type">Tipo de item</label>
+                <select id="menu-item-type" name="type">
+                  <option value="page">Página publicada</option>
+                  <option value="custom">Link personalizado</option>
+                  <option value="home">Página inicial</option>
+                </select>
+                <div data-menu-item-fields="page">
+                  <label for="menu-item-page">Página publicada</label>
+                  <select id="menu-item-page" name="page_id" required>
+                    <option value="">Selecione uma página</option>
+                    {{range .MenuPages}}<option value="{{.ID}}">{{.Title}}</option>{{end}}
+                  </select>
+                  <label for="menu-page-label">Texto do link <span class="muted">opcional</span></label>
+                  <input id="menu-page-label" name="label" type="text" maxlength="100" placeholder="Usar o título da página">
+                </div>
+                <div data-menu-item-fields="custom" hidden>
+                  <label for="menu-custom-label">Texto do link</label>
+                  <input id="menu-custom-label" name="label" type="text" maxlength="100" placeholder="Ex.: Documentação" required disabled>
+                  <label for="menu-item-url">Endereço do link</label>
+                  <input id="menu-item-url" name="url" type="text" maxlength="2048" placeholder="https://exemplo.com ou /contato" required disabled>
+                  <p class="muted">Links personalizados aceitam somente caminhos locais ou URLs HTTP(S).</p>
+                </div>
+                <div data-menu-item-fields="home" hidden>
+                  <label for="menu-home-label">Texto do link para a página inicial</label>
+                  <input id="menu-home-label" name="label" type="text" maxlength="100" placeholder="Ex.: Início" required disabled>
+                  <p class="muted">O link apontará para a página inicial do site (/).</p>
+                </div>
+                <button class="button button-primary" type="submit">Adicionar item</button>
+              </form>
+              <h2>Estrutura do menu</h2>
+              <ol class="menu-items">
+                {{range .MenuItems}}
+                  <li class="menu-item-row">
+                    <div><strong>{{.Label}}</strong><span class="muted">{{.URL}}</span></div>
+                    <div class="menu-item-actions">
+                      <form method="post" action="/admin/appearance/menu-items/{{.ID}}/move">
+                        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                        <input type="hidden" name="direction" value="up">
+                        <button class="button" type="submit" aria-label="Mover {{.Label}} para cima">↑</button>
+                      </form>
+                      <form method="post" action="/admin/appearance/menu-items/{{.ID}}/move">
+                        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                        <input type="hidden" name="direction" value="down">
+                        <button class="button" type="submit" aria-label="Mover {{.Label}} para baixo">↓</button>
+                      </form>
+                      <form method="post" action="/admin/appearance/menu-items/{{.ID}}/delete">
+                        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                        <button class="button button-danger" type="submit">Remover</button>
+                      </form>
+                    </div>
+                  </li>
+                {{else}}
+                  <li class="empty-state">Este menu ainda não tem itens.</li>
+                {{end}}
+              </ol>
+              <form method="post" action="/admin/appearance/menus/{{.SelectedMenu.ID}}/delete">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <button class="button button-danger" type="submit">Excluir menu</button>
+              </form>
+            </section>
+          {{else}}
+            <p class="empty-state">Crie um menu para começar a montar sua navegação.</p>
+          {{end}}
         {{else if eq .Mode "plugins"}}
           <div class="page-heading">
             <div><p class="eyebrow">Extensões</p><h1>Plugins</h1></div>
+            <a class="button button-primary" href="/admin/plugins/install">Instalar plugin</a>
           </div>
           <p class="muted">Plugins Lua executam somente os hooks selecionados, com timeout por evento.</p>
           <section class="plugin-grid">
@@ -205,6 +333,20 @@
               <p class="empty-state">Nenhum plugin encontrado.</p>
             {{end}}
           </section>
+        {{else if eq .Mode "plugin-install"}}
+          <div class="page-heading">
+            <div><p class="eyebrow">Extensões</p><h1>Instalar plugin</h1></div>
+            <a class="button" href="/admin/plugins">Voltar para plugins</a>
+          </div>
+          <section class="welcome-card">
+            <p>Envie um arquivo ZIP de até 20 MB contendo um manifesto <code>plugin.json</code> e o script Lua declarado nele. O plugin será instalado inativo.</p>
+            <form class="editor-form" method="post" action="/admin/plugins/install" enctype="multipart/form-data">
+              <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+              <label for="plugin-package">Arquivo ZIP do plugin</label>
+              <input id="plugin-package" name="package" type="file" accept=".zip,application/zip" required>
+              <button class="button button-primary" type="submit">Enviar e instalar plugin</button>
+            </form>
+          </section>
         {{else if eq .Mode "users"}}
           <div class="page-heading"><div><p class="eyebrow">Administração</p><h1>Usuários</h1></div></div>
           <section class="editor-panel">
@@ -224,7 +366,7 @@
               <button class="button button-primary" type="submit">Criar usuário</button>
             </form>
           </section>
-          <section class="content-list">
+          <section class="content-list users-list">
             <h2>Usuários existentes</h2>
             {{range .Users}}
               <article class="content-row"><strong>{{.Username}}</strong><span>{{.Role}}</span></article>
@@ -234,6 +376,60 @@
           </section>
         {{else if eq .Mode "settings"}}
           <div class="page-heading"><div><p class="eyebrow">Administração</p><h1>Configurações</h1></div></div>
+          <section class="welcome-card">
+            <h2>Identidade do site</h2>
+            <p>Defina o nome, a descrição e o logotipo que aparecem no site público.</p>
+            <form class="editor-form" method="post" action="/admin/settings/save">
+              <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+              <input type="hidden" name="show_on_front" value="{{.SiteSettings.ShowOnFront}}">
+              <input type="hidden" name="page_on_front" value="{{.SiteSettings.PageOnFront}}">
+              <input type="hidden" name="home_intro_title" value="{{.SiteSettings.HomeIntroTitle}}">
+              <input type="hidden" name="home_posts_title" value="{{.SiteSettings.HomePostsTitle}}">
+              <label for="site-title">Título do site</label>
+              <input id="site-title" name="site_title" type="text" maxlength="120" value="{{.SiteSettings.Title}}" required>
+              <label for="site-tagline">Descrição curta / slogan</label>
+              <input id="site-tagline" name="site_tagline" type="text" maxlength="250" value="{{.SiteSettings.Tagline}}">
+              <label for="site-logo">Logotipo</label>
+              <select id="site-logo" name="site_logo">
+                <option value="">Sem logotipo — exibir título em texto</option>
+                {{range .MediaItems}}
+                  {{if hasPrefix .FileType "image/"}}
+                    <option value="{{.Filepath}}" {{if eq $.SiteSettings.Logo .Filepath}}selected{{end}}>{{.Filename}}</option>
+                  {{end}}
+                {{end}}
+              </select>
+              {{if .SiteSettings.Logo}}<p class="muted">Logotipo atual: <a href="{{.SiteSettings.Logo}}" target="_blank" rel="noreferrer">visualizar arquivo</a></p>{{end}}
+              <p class="muted"><a href="/admin/media">Enviar ou gerenciar imagens na Biblioteca de Mídias</a>.</p>
+              <button class="button button-primary" type="submit">Salvar identidade</button>
+            </form>
+          </section>
+          <section class="welcome-card">
+            <h2>Configurações de leitura</h2>
+            <p>Escolha o que será exibido na página inicial.</p>
+            <form class="editor-form" method="post" action="/admin/settings/save">
+              <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+              <input type="hidden" name="site_title" value="{{.SiteSettings.Title}}">
+              <input type="hidden" name="site_tagline" value="{{.SiteSettings.Tagline}}">
+              <input type="hidden" name="site_logo" value="{{.SiteSettings.Logo}}">
+              <label for="home-intro-title">Título de introdução</label>
+              <input id="home-intro-title" name="home_intro_title" type="text" maxlength="120" value="{{.SiteSettings.HomeIntroTitle}}" required>
+              <label for="home-posts-title">Título da seção de posts</label>
+              <input id="home-posts-title" name="home_posts_title" type="text" maxlength="120" value="{{.SiteSettings.HomePostsTitle}}" required>
+              <label for="show-on-front">Página inicial exibe</label>
+              <select id="show-on-front" name="show_on_front">
+                <option value="posts" {{if eq .SiteSettings.ShowOnFront "posts"}}selected{{end}}>Posts recentes</option>
+                <option value="page" {{if eq .SiteSettings.ShowOnFront "page"}}selected{{end}}>Uma página estática</option>
+              </select>
+              <label for="page-on-front">Página publicada</label>
+              <select id="page-on-front" name="page_on_front">
+                <option value="">Selecione uma página</option>
+                {{range .Items}}
+                  <option value="{{.ID}}" {{if eq $.SiteSettings.PageOnFront .ID}}selected{{end}}>{{.Title}}</option>
+                {{end}}
+              </select>
+              <button class="button button-primary" type="submit">Salvar leitura</button>
+            </form>
+          </section>
           <section class="welcome-card">
             <h2>Banco de dados</h2>
             <p>Crie uma cópia consistente do SQLite sem interromper o servidor ou baixe um backup agora.</p>
@@ -255,3 +451,19 @@
     </div>
   </body>
 </html>
+
+{{define "media-picker"}}
+  {{if .MediaItems}}
+    <div class="media-picker-grid">
+      {{range .MediaItems}}
+        <button class="media-picker-item" type="button" data-media-select
+          data-path="{{.Filepath}}" data-alt="{{.AltText}}" data-mode="{{$.PickerMode}}">
+          <img src="{{.Filepath}}" alt="">
+          <span>{{.Filename}}</span>
+        </button>
+      {{end}}
+    </div>
+  {{else}}
+    <p class="empty-state">Nenhuma imagem disponível. Envie imagens pela <a href="/admin/media">Biblioteca de Mídias</a>.</p>
+  {{end}}
+{{end}}

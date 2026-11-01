@@ -2,6 +2,7 @@ package cache
 
 import (
 	"fmt"
+	"log/slog"
 	"math"
 	"net"
 	"net/http"
@@ -77,7 +78,9 @@ func (l *Limiter) prune(now time.Time) {
 
 func (l *Limiter) Middleware(keyPrefix string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !l.Allow(keyPrefix+":"+clientIP(r), time.Now()) {
+		ip := clientIP(r)
+		if !l.Allow(keyPrefix+":"+ip, time.Now()) {
+			slog.Warn("request rate limited", "scope", keyPrefix, "remote_addr", ip)
 			w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(1/l.rate))))
 			http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
 			return

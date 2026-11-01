@@ -27,6 +27,7 @@ func TestLoadConfigurationPrecedence(t *testing.T) {
 
 func TestLoadDotenvAndDefaults(t *testing.T) {
 	unsetEnv(t, "GO_CONTENT_GO_MAX_UPLOAD_SIZE")
+	unsetEnv(t, "GO_CONTENT_GO_API_RATE_LIMIT")
 	unsetEnv(t, "GO_CONTENT_GO_UPLOADS")
 	unsetEnv(t, "GO_CONTENT_GO_THEMES")
 	unsetEnv(t, "GO_CONTENT_GO_PLUGINS")
@@ -53,6 +54,27 @@ func TestLoadDotenvAndDefaults(t *testing.T) {
 	}
 	if cfg.PluginsPath != defaultPluginsPath {
 		t.Errorf("plugins path = %q, want default %q", cfg.PluginsPath, defaultPluginsPath)
+	}
+	if cfg.APIRateLimit != defaultAPIRate {
+		t.Errorf("API rate limit = %d, want default %d", cfg.APIRateLimit, defaultAPIRate)
+	}
+}
+
+func TestLoadAPIRateLimit(t *testing.T) {
+	unsetEnv(t, "GO_CONTENT_GO_API_RATE_LIMIT")
+	envFile := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(envFile, []byte("GO_CONTENT_GO_API_RATE_LIMIT=120\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load([]string{"-env-file", envFile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.APIRateLimit != 120 {
+		t.Fatalf("API rate limit = %d, want 120", cfg.APIRateLimit)
+	}
+	if _, err := Load([]string{"-env-file", envFile, "-api-rate-limit", "0"}); err == nil {
+		t.Fatal("Load() accepted a zero API rate limit")
 	}
 }
 

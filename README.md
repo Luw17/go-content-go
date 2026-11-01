@@ -21,11 +21,33 @@ Para usar outra porta no host, defina `GO_CONTENT_GO_PORT`, por exemplo
 
 O Compose mantém o banco, uploads, backups, temas e plugins em volumes
 persistentes nomeados. O tema `default` vem na imagem e também está embutido no
-binário como fallback. Temas adicionais e plugins Alpha podem ser colocados nos
-respectivos volumes em `/app/themes/<id>` e `/app/plugins/<id>` e permanecem
-após recriações do container. A instalação de plugins/temas pela interface
-administrativa ainda não está disponível; por enquanto, adicione-os ao volume
-por um processo de deploy ou administração do servidor.
+binário como fallback. Temas adicionais e plugins Alpha podem ser instalados em
+**Aparência → Instalar tema** e **Plugins → Instalar plugin**, ou colocados nos
+respectivos volumes em `/app/themes/<id>` e `/app/plugins/<id>`.
+
+O painel aceita pacotes ZIP de até 20 MB. Temas devem conter `index.html`,
+`single.html`, `page.html`, `404.html` e `style.css`; `theme.json` é opcional.
+Plugins devem conter um `plugin.json` válido e o script Lua declarado no
+manifesto. Plugins instalados ficam inativos até serem ativados no painel.
+Arquivos ZIP são extraídos em staging, validados antes da publicação e
+rejeitados se contiverem caminhos de traversal, links simbólicos ou tipos
+especiais.
+
+## Segurança e limites
+
+O painel limita tentativas de login a cinco por minuto por endereço IP e
+bloqueia novas tentativas por 15 minutos após cinco falhas. Uploads de mídia,
+temas e plugins compartilham um limite de 10 requisições por minuto e por IP.
+A API REST aceita 60 requisições por minuto por IP por padrão; ajuste com
+`GO_CONTENT_GO_API_RATE_LIMIT` (de 1 a 10000) ou com a flag
+`-api-rate-limit`. Os limites são mantidos em memória por processo.
+
+O painel também aplica tokens CSRF em todos os métodos que alteram dados,
+cookies `HttpOnly` e `SameSite=Strict`, rotação de sessão após autenticação,
+senhas bcrypt com custo 12 (hashes antigos são atualizados no próximo login),
+política CSP e cabeçalhos anti-clickjacking/MIME sniffing. O SQLite local usa
+permissão `0600`; a pasta de uploads usa `0755`, e arquivos internos não são
+servidos por rotas HTTP.
 
 Para publicar no Dokploy, conecte o repositório e use o `Dockerfile` ou
 `compose.yaml`. Se configurar volumes pela interface do Dokploy, use os mesmos
@@ -34,6 +56,30 @@ e `/app/plugins`. Não monte um volume vazio por cima de `/app/themes` se a
 plataforma não copiar os arquivos existentes na imagem para o volume; nesse
 caso, o fallback embutido mantém o tema padrão funcional, mas o CSS e os demais
 assets personalizados precisam existir no volume.
+
+## Configurações do site
+
+Em `/admin/settings`, administradores podem configurar o título, a descrição
+curta e o logotipo do site. A biblioteca de mídias fornece as imagens elegíveis
+para o logotipo. Também é possível escolher entre listar posts publicados ou
+exibir uma página publicada como página inicial, além de personalizar os títulos
+de introdução e da seção de posts do tema padrão.
+
+As opções são persistidas na tabela `options` do SQLite. Se a página inicial
+configurada deixar de estar disponível, a home volta à lista de posts publicados.
+
+## Menus e mídia no editor
+
+Administradores gerenciam os menus em `/admin/appearance/menus`, escolhendo a
+localização principal ou rodapé, adicionando páginas publicadas e links locais
+ou HTTP(S), e mudando a ordem dos itens com os controles do painel. O tema
+padrão usa `{{render_menu "primary"}}` e `{{render_menu "footer"}}`; páginas
+removidas ou não publicadas são omitidas automaticamente.
+
+Nos editores de posts e páginas, **Selecionar imagem destacada** e **Inserir
+mídia** abrem a biblioteca de imagens em um modal HTMX. A imagem destacada é
+pré-visualizada e validada contra a biblioteca ao salvar; a inserção inline
+coloca Markdown de imagem no cursor atual.
 
 ---
 

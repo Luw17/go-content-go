@@ -58,9 +58,6 @@ func (h *handler) uploadMedia(w http.ResponseWriter, r *http.Request) {
 		h.mediaActionError(w, r, http.StatusBadRequest, "Envie um formulário multipart válido.")
 		return
 	}
-	if r.MultipartForm != nil {
-		defer r.MultipartForm.RemoveAll()
-	}
 	if !validCSRFToken(r) {
 		h.mediaActionError(w, r, http.StatusForbidden, "A sessão do formulário expirou. Atualize a página e tente novamente.")
 		return

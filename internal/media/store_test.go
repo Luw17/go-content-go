@@ -21,6 +21,11 @@ func TestSaveUniqueFilesAndDelete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if info, err := os.Stat(root); err != nil {
+		t.Fatal(err)
+	} else if info.Mode().Perm() != 0755 {
+		t.Fatalf("uploads directory permissions = %04o, want 0755", info.Mode().Perm())
+	}
 	png := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}
 	first, err := store.Save(ctx, "same image.png", "Alt text", bytes.NewReader(png))
 	if err != nil {
@@ -87,6 +92,31 @@ func TestSaveRejectsUnsafeNamesTypesAndOversizeFiles(t *testing.T) {
 				t.Errorf("Save() error = %v, want %v", err, test.wantErr)
 			}
 		})
+	}
+}
+
+func TestNewStoreRejectsSymlinkUploadRootWithoutChangingTargetPermissions(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("symlink support differs on Windows")
+	}
+	db := newMediaTestDB(t)
+	target := t.TempDir()
+	if err := os.Chmod(target, 0700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "uploads")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewStore(db, link, 1024); err == nil {
+		t.Fatal("NewStore() accepted a symlink upload root")
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0700 {
+		t.Fatalf("symlink target permissions = %04o, want unchanged 0700", info.Mode().Perm())
 	}
 }
 

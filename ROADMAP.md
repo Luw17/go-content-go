@@ -77,3 +77,106 @@ Run `make build` to generate the five platform binaries under `dist/`. Build the
 
 ## 📜 License
 This project is licensed under the **Apache License 2.0**. See the [LICENSE](LICENSE) file for full details.
+
+
+
+🗺️ Go Content Go! (GCG) — Roadmap Estratégico Pós-v1.0
+
+Este roadmap detalha as fases de desenvolvimento focadas em transformar o core robusto do GCG v1.0 numa plataforma de gerenciamento de conteúdo completa, priorizando a experiência do usuário e a customização visual.
+🏗️ Fase 4: Configurações Globais e Identidade
+
+    Goal: Dar controle total ao administrador sobre a identidade do site e configurações básicas do core.
+
+4.1 Identidade do Site (Ref. Terceiro Ponto)
+
+    [x] Implementar seção em /admin/settings: "Identidade do Site".
+
+    [x] Campos SQLite para: site_title (Título do Site), site_tagline (Descrição Curta/Slogan), site_logo (Upload de logo via Media).
+
+    [x] Atualizar o motor de renderização Go e o tema padrão para utilizar essas variáveis dinâmicas em vez de textos hardcoded.
+
+4.2 Configurações da Home (Ref. Segundo Ponto)
+
+    [x] Implementar seção em /admin/settings: "Configurações de Leitura".
+
+    [x] Criar opção para definir o que exibir na home:
+
+        posts (Lista cronológica reversa, padrão v1.0).
+
+        page (Uma página estática específica selecionada no banco).
+
+    [x] Adicionar campos extras de customização leve para a Home (ex: "Título da seção de posts", "Título de introdução").
+
+🎨 Fase 5: Estrutura Visual e Navegação
+
+    Goal: Resolver a navegação dinâmica do site e aprimorar a inserção de mídia no conteúdo.
+
+5.1 Sistema de Menus Dinâmicos (Ref. Primeiro Ponto)
+
+    [x] Database Structure: Criar tabelas SQLite menus e menu_items com localização, tipo, referência de página, ordem e parent_id.
+
+    [x] Admin UI: Criar gerenciador em /admin/appearance/menus para adicionar páginas e links e reordenar itens; arrastar e soltar/hierarquia ficam para uma evolução futura.
+
+    [x] Configuração: Permitir mapear um menu criado para uma localização de tema (Menu Principal ou Rodapé).
+
+    [x] Theme Integration: Expor render_menu nos templates Go e renderizar os menus configurados no tema padrão.
+
+5.2 Gerenciador de Mídia Integrado (Ref. Quarto e Sexto Pontos)
+
+    [x] Media Picker: Implementar modal via HTMX para selecionar imagens da Biblioteca de Mídias no editor de Post/Página.
+
+    [x] Featured Image Flow: Selecionar imagem no picker, exibir prévia e validar o caminho indexado antes de salvar.
+
+    [x] Inline Media Flow: Inserir Markdown de imagem no ponto atual do cursor no editor.
+
+🔌 Fase 6: Gerenciamento de Extensibilidade
+
+    Goal: Facilitar a instalação e gerenciamento de temas e plugins via painel administrativo.
+
+6.1 Instalador de Temas (Ref. Quinto Ponto)
+
+    [x] Implementar view em /admin/appearance/install.
+
+    [x] Permitir upload de arquivos .zip contendo o tema, com limite de 20 MB.
+
+    [x] Extrair em staging e validar os templates obrigatórios, os metadados opcionais de theme.json e os caminhos para prevenir Path Traversal antes de publicar em /themes/{nome-do-tema}/.
+
+6.2 Instalador de Plugins (Ref. Quinto Ponto) (v1.2.0)
+
+    [x] Implementar view em /admin/plugins/install.
+
+    [x] Permitir upload de arquivos .zip contendo o plugin, com limite de 20 MB.
+
+    [x] Extrair em staging e validar plugin.json, o script Lua e os caminhos antes de publicar em /plugins/{nome-do-plugin}/.
+
+    [x] Atualizar a lista administrativa após a instalação; plugins instalados ficam inativos até serem ativados no painel.
+
+🛡️ Fase 7: Segurança e Hardening
+
+    Goal: Preparar o GCG para ameaças de segurança complexas e ambientes corporativos.
+
+    [x] Limitar login a cinco tentativas por minuto por IP e aplicar cooldown de 15 minutos após cinco falhas.
+
+    [x] Aplicar rate limit por IP aos uploads de mídia, temas e plugins; permitir configurar o limite da API REST.
+
+    [x] Aplicar proteção CSRF global aos métodos mutáveis do painel e cabeçalhos HTTP CSP, X-Frame-Options, nosniff e Referrer-Policy.
+
+    [x] Reforçar cookies de sessão, rotacionar o ID de sessão após autenticação e atualizar hashes bcrypt antigos para custo 12.
+
+    [x] Sanitizar HTML dos editores antes de persistir e manter a sanitização do HTML renderizado.
+
+    [x] Restringir permissões do SQLite e uploads e bloquear rotas de arquivos/diretórios internos.
+
+    [ ] Implementar autenticação de dois fatores (2FA) nativa.
+
+    [ ] Completar auditoria de permissões de arquivo em todos os diretórios e plataformas suportados.
+
+🏆 Fase 8: GCG v2.0 Release Candidate
+
+    Goal: Consolidar todas as features, realizar testes de integração e lançar a versão 2.0.
+
+    [ ] Testes de carga simulando 10.000 posts e 1.000 usuários simultâneos com cache de memória ativo.
+
+    [ ] Validação da documentação final de temas e plugins.
+
+    [ ] Lançamento da versão 2.0.0 estável.

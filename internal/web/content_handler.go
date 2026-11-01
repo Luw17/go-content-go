@@ -15,7 +15,9 @@ import (
 	"github.com/Luw17/go-content-go/internal/auth"
 	"github.com/Luw17/go-content-go/internal/content"
 	"github.com/Luw17/go-content-go/internal/media"
+	"github.com/Luw17/go-content-go/internal/navigation"
 	"github.com/Luw17/go-content-go/internal/plugins"
+	"github.com/Luw17/go-content-go/internal/siteconfig"
 	themeengine "github.com/Luw17/go-content-go/themes"
 )
 
@@ -43,6 +45,13 @@ type adminPage struct {
 	Plugins            []plugins.Manifest
 	Users              []auth.User
 	Role               string
+	SiteSettings       siteconfig.Settings
+	Menus              []navigation.Menu
+	MenuItems          []navigation.Item
+	SelectedMenu       navigation.Menu
+	MenuPages          []content.Item
+	MenuID             int64
+	PickerMode         string
 }
 
 type publicItem struct {
@@ -56,18 +65,21 @@ var publicHTMLTagPattern = regexp.MustCompile(`<[^>]*>`)
 
 type publicHomeData struct {
 	Theme    string
+	Site     siteconfig.Settings
 	Posts    []publicItem
 	HeadTags template.HTML
 }
 
 type publicContentData struct {
 	Theme    string
+	Site     siteconfig.Settings
 	Item     publicItem
 	HeadTags template.HTML
 }
 
 type publicNotFoundData struct {
 	Theme    string
+	Site     siteconfig.Settings
 	HeadTags template.HTML
 }
 
@@ -274,6 +286,18 @@ func (h *handler) saveContent(w http.ResponseWriter, r *http.Request, contentTyp
 		NewCategoryParentID: parentID,
 		Tags:                r.FormValue("tags"),
 	}
+	if strings.HasPrefix(input.FeaturedImage, "/uploads/") {
+		image, err := h.media.FindByPath(r.Context(), input.FeaturedImage)
+		if err != nil || !strings.HasPrefix(strings.ToLower(image.FileType), "image/") {
+			if err != nil && !errors.Is(err, media.ErrNotFound) {
+				log.Printf("validate featured image: %v", err)
+				http.Error(w, "failed to validate featured image", http.StatusInternalServerError)
+				return
+			}
+			h.renderValidationError(w, r, input, "Selecione uma imagem existente na biblioteca de mídias.")
+			return
+		}
+	}
 	if contentType == content.TypePost {
 		h.plugins.DispatchAction(r.Context(), "post:before_save", contentHookPayload(input, user.ID))
 	}
@@ -334,6 +358,15 @@ func (h *handler) renderValidationError(w http.ResponseWriter, r *http.Request, 
 		http.Error(w, "failed to load categories", http.StatusInternalServerError)
 		return
 	}
+	var mediaItems []media.Item
+	if input.FeaturedImage != "" {
+		mediaItems, err = h.media.List(r.Context())
+		if err != nil {
+			log.Printf("load media after invalid content: %v", err)
+			http.Error(w, "failed to reload content editor", http.StatusInternalServerError)
+			return
+		}
+	}
 	token, err := r.Cookie(csrfCookieName)
 	if err != nil {
 		http.Error(w, "missing form token", http.StatusForbidden)
@@ -366,6 +399,7 @@ func (h *handler) renderValidationError(w http.ResponseWriter, r *http.Request, 
 		ContentTypeLabel:   label,
 		Item:               item,
 		Categories:         categories,
+		MediaItems:         mediaItems,
 		SelectedCategories: selected,
 		TagInput:           input.Tags,
 		NewCategory:        input.NewCategory,
@@ -604,6 +638,35 @@ func (h *handler) adminPlaceholder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) publicHome(w http.ResponseWriter, r *http.Request) {
+	settings, err := siteconfig.Load(r.Context(), h.db)
+	if err != nil {
+		log.Printf("load site settings for home: %v", err)
+		http.Error(w, "failed to load site", http.StatusInternalServerError)
+		return
+	}
+	if settings.ShowOnFront == siteconfig.FrontPage {
+		frontPage, err := content.PublishedPageByID(r.Context(), h.db, settings.PageOnFront)
+		if err == nil {
+			markdown := h.filteredMarkdown(r, frontPage.Content)
+			rendered, err := content.RenderMarkdown(markdown)
+			if err != nil {
+				log.Printf("render front page %d: %v", frontPage.ID, err)
+				http.Error(w, "failed to render site", http.StatusInternalServerError)
+				return
+			}
+			public := newPublicItem(frontPage, rendered)
+			h.renderTheme(w, r, "page.html", http.StatusOK, func(themeName string, headTags template.HTML, site siteconfig.Settings) any {
+				return publicContentData{Theme: themeName, Site: site, Item: public, HeadTags: headTags}
+			})
+			return
+		}
+		if !errors.Is(err, content.ErrNotFound) {
+			log.Printf("load configured front page %d: %v", settings.PageOnFront, err)
+			http.Error(w, "failed to load site", http.StatusInternalServerError)
+			return
+		}
+		log.Printf("configured front page %d is unavailable; showing published posts", settings.PageOnFront)
+	}
 	items, err := content.Published(r.Context(), h.db, 20)
 	if err != nil {
 		log.Printf("load public home: %v", err)
@@ -624,8 +687,8 @@ func (h *handler) publicHome(w http.ResponseWriter, r *http.Request) {
 		}
 		posts = append(posts, newPublicItem(item, rendered))
 	}
-	h.renderTheme(w, r, "index.html", http.StatusOK, func(themeName string, headTags template.HTML) any {
-		return publicHomeData{Theme: themeName, Posts: posts, HeadTags: headTags}
+	h.renderTheme(w, r, "index.html", http.StatusOK, func(themeName string, headTags template.HTML, site siteconfig.Settings) any {
+		return publicHomeData{Theme: themeName, Site: site, Posts: posts, HeadTags: headTags}
 	})
 }
 
@@ -657,8 +720,8 @@ func (h *handler) publicContent(w http.ResponseWriter, r *http.Request) {
 		templateName = "single.html"
 	}
 	public := newPublicItem(item, rendered)
-	h.renderTheme(w, r, templateName, http.StatusOK, func(themeName string, headTags template.HTML) any {
-		return publicContentData{Theme: themeName, Item: public, HeadTags: headTags}
+	h.renderTheme(w, r, templateName, http.StatusOK, func(themeName string, headTags template.HTML, site siteconfig.Settings) any {
+		return publicContentData{Theme: themeName, Site: site, Item: public, HeadTags: headTags}
 	})
 }
 
@@ -707,8 +770,8 @@ func (h *handler) renderFragmentStatus(w http.ResponseWriter, name string, page 
 }
 
 func (h *handler) publicNotFound(w http.ResponseWriter, r *http.Request) {
-	h.renderTheme(w, r, "404.html", http.StatusNotFound, func(themeName string, headTags template.HTML) any {
-		return publicNotFoundData{Theme: themeName, HeadTags: headTags}
+	h.renderTheme(w, r, "404.html", http.StatusNotFound, func(themeName string, headTags template.HTML, site siteconfig.Settings) any {
+		return publicNotFoundData{Theme: themeName, Site: site, HeadTags: headTags}
 	})
 }
 

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -18,6 +19,7 @@ const (
 	SessionDuration = 12 * time.Hour
 	minPasswordSize = 12
 	maxPasswordSize = 72
+	passwordCost    = 12
 )
 
 var (
@@ -26,6 +28,9 @@ var (
 	ErrInvalidUsername    = errors.New("username must be 3-32 characters: lowercase letters, numbers, underscores, or hyphens")
 	ErrInvalidPassword    = errors.New("password must be between 12 and 72 bytes")
 	ErrInvalidRole        = errors.New("role must be admin, editor, or author")
+	dummyHashOnce         sync.Once
+	dummyPasswordHash     []byte
+	dummyPasswordHashErr  error
 )
 
 type User struct {
@@ -53,7 +58,7 @@ func CreateInitialAdmin(ctx context.Context, db *sql.DB, username, password stri
 		return User{}, ErrInvalidPassword
 	}
 
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), passwordCost)
 	if err != nil {
 		return User{}, fmt.Errorf("hash administrator password: %w", err)
 	}
@@ -96,11 +101,29 @@ func Authenticate(ctx context.Context, db *sql.DB, username, password string) (U
 	}
 	if err != nil {
 		// Keep invalid usernames on the same password-hashing path as existing users.
-		_ = bcrypt.CompareHashAndPassword([]byte("$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"), []byte(password))
+		hash, hashErr := getDummyPasswordHash()
+		if hashErr != nil {
+			return User{}, fmt.Errorf("prepare dummy password hash: %w", hashErr)
+		}
+		_ = bcrypt.CompareHashAndPassword(hash, []byte(password))
 		return User{}, ErrInvalidCredentials
 	}
 	if !ValidRole(user.Role) || bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password)) != nil {
 		return User{}, ErrInvalidCredentials
+	}
+	cost, err := bcrypt.Cost([]byte(passwordHash))
+	if err != nil {
+		return User{}, fmt.Errorf("inspect password hash cost: %w", err)
+	}
+	if cost < passwordCost {
+		upgraded, err := bcrypt.GenerateFromPassword([]byte(password), passwordCost)
+		if err != nil {
+			return User{}, fmt.Errorf("upgrade password hash: %w", err)
+		}
+		if _, err := db.ExecContext(ctx, "UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?",
+			string(upgraded), time.Now().UTC().Format(time.RFC3339Nano), user.ID); err != nil {
+			return User{}, fmt.Errorf("store upgraded password hash: %w", err)
+		}
 	}
 	return user, nil
 }
@@ -168,7 +191,7 @@ func CreateUser(ctx context.Context, db *sql.DB, username, password, role string
 	if !ValidRole(role) {
 		return User{}, ErrInvalidRole
 	}
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), passwordCost)
 	if err != nil {
 		return User{}, fmt.Errorf("hash user password: %w", err)
 	}
@@ -217,6 +240,13 @@ func DeleteSession(ctx context.Context, db *sql.DB, token string) error {
 		return fmt.Errorf("delete session: %w", err)
 	}
 	return nil
+}
+
+func getDummyPasswordHash() ([]byte, error) {
+	dummyHashOnce.Do(func() {
+		dummyPasswordHash, dummyPasswordHashErr = bcrypt.GenerateFromPassword([]byte("constant-time dummy password"), passwordCost)
+	})
+	return dummyPasswordHash, dummyPasswordHashErr
 }
 
 func validUsername(username string) bool {

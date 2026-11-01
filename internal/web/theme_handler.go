@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Luw17/go-content-go/internal/siteconfig"
 	themeengine "github.com/Luw17/go-content-go/themes"
 	"github.com/microcosm-cc/bluemonday"
 )
@@ -57,8 +58,14 @@ func (h *handler) appearance(w http.ResponseWriter, r *http.Request) {
 	if configured != active {
 		page.Error = "O tema configurado não está disponível ou é inválido. O tema padrão está sendo usado."
 	}
+	if message := packageInstallErrorMessage(r.URL.Query().Get("install_error")); message != "" {
+		page.Error = message
+	}
 	if r.URL.Query().Get("activated") == "1" {
 		page.Notice = "Tema ativado."
+	}
+	if r.URL.Query().Get("installed") == "1" {
+		page.Notice = "Tema instalado. Você pode ativá-lo quando quiser."
 	}
 	h.renderAdmin(w, page)
 }
@@ -194,14 +201,24 @@ func (h *handler) serveThemeAsset(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *handler) renderTheme(w http.ResponseWriter, r *http.Request, templateName string, status int, data func(string, template.HTML) any) {
+func (h *handler) renderTheme(w http.ResponseWriter, r *http.Request, templateName string, status int, data func(string, template.HTML, siteconfig.Settings) any) {
+	settings, err := siteconfig.Load(r.Context(), h.db)
+	if err != nil {
+		log.Printf("load site settings for public page: %v", err)
+		http.Error(w, "Não foi possível carregar o site.", http.StatusInternalServerError)
+		return
+	}
 	configured, err := h.themes.Active(r.Context(), h.db)
 	if err != nil {
 		log.Printf("load active theme for public page: %v", err)
 		http.Error(w, "Não foi possível carregar o site.", http.StatusInternalServerError)
 		return
 	}
-	active, templates, err := h.themes.Resolve(configured)
+	active, templates, err := h.themes.ResolveWithFuncs(configured, template.FuncMap{
+		"render_menu": func(location string) (template.HTML, error) {
+			return h.menus.RenderHTML(r.Context(), location)
+		},
+	})
 	if err != nil {
 		log.Printf("resolve theme for public page: %v", err)
 		http.Error(w, "Não foi possível renderizar o site.", http.StatusInternalServerError)
@@ -209,7 +226,7 @@ func (h *handler) renderTheme(w http.ResponseWriter, r *http.Request, templateNa
 	}
 	headTags := h.filteredHeadTags(r)
 	var rendered bytes.Buffer
-	if err := templates.ExecuteTemplate(&rendered, templateName, data(active, headTags)); err != nil {
+	if err := templates.ExecuteTemplate(&rendered, templateName, data(active, headTags, settings)); err != nil {
 		log.Printf("render public theme %q template %s: %v", active, templateName, err)
 		http.Error(w, "Não foi possível renderizar o site.", http.StatusInternalServerError)
 		return

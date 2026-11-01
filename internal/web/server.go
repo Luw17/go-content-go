@@ -23,7 +23,9 @@ import (
 	"github.com/Luw17/go-content-go/internal/cache"
 	"github.com/Luw17/go-content-go/internal/content"
 	"github.com/Luw17/go-content-go/internal/media"
+	"github.com/Luw17/go-content-go/internal/navigation"
 	"github.com/Luw17/go-content-go/internal/plugins"
+	"github.com/Luw17/go-content-go/internal/siteconfig"
 	themeengine "github.com/Luw17/go-content-go/themes"
 	embeddedweb "github.com/Luw17/go-content-go/web"
 )
@@ -36,13 +38,15 @@ const (
 )
 
 type handler struct {
-	db        *sql.DB
-	templates *template.Template
-	media     *media.Store
-	themes    *themeengine.Manager
-	plugins   *plugins.Manager
-	cache     *cache.Cache
-	backupDir string
+	db              *sql.DB
+	templates       *template.Template
+	media           *media.Store
+	menus           *navigation.Store
+	themes          *themeengine.Manager
+	plugins         *plugins.Manager
+	cache           *cache.Cache
+	loginProtection *cache.LoginProtection
+	backupDir       string
 }
 
 type Options struct {
@@ -51,6 +55,7 @@ type Options struct {
 	ThemeDir      string
 	PluginDir     string
 	BackupDir     string
+	APIRateLimit  int
 }
 
 type formData struct {
@@ -70,6 +75,7 @@ func NewHandler(db *sql.DB, options ...Options) (http.Handler, error) {
 		ThemeDir:      "themes",
 		PluginDir:     "plugins",
 		BackupDir:     "backups",
+		APIRateLimit:  60,
 	}
 	if len(options) > 1 {
 		return nil, fmt.Errorf("only one web options value may be supplied")
@@ -90,10 +96,20 @@ func NewHandler(db *sql.DB, options ...Options) (http.Handler, error) {
 		if options[0].BackupDir != "" {
 			settings.BackupDir = options[0].BackupDir
 		}
+		if options[0].APIRateLimit != 0 {
+			settings.APIRateLimit = options[0].APIRateLimit
+		}
+	}
+	if settings.APIRateLimit < 1 || settings.APIRateLimit > 10000 {
+		return nil, fmt.Errorf("API rate limit must be between 1 and 10000 requests per minute")
 	}
 	mediaStore, err := media.NewStore(db, settings.UploadDir, settings.MaxUploadSize)
 	if err != nil {
 		return nil, fmt.Errorf("initialize media store: %w", err)
+	}
+	menuStore, err := navigation.NewStore(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize navigation menus: %w", err)
 	}
 	themeManager, err := themeengine.New(settings.ThemeDir)
 	if err != nil {
@@ -143,13 +159,22 @@ func NewHandler(db *sql.DB, options ...Options) (http.Handler, error) {
 	if err != nil {
 		return nil, fmt.Errorf("initialize login rate limiter: %w", err)
 	}
-	apiLimiter, err := cache.NewLimiter(60, time.Minute, 30, 10000)
+	loginProtection, err := cache.NewLoginProtection(5, time.Minute, 15*time.Minute, 10000)
+	if err != nil {
+		return nil, fmt.Errorf("initialize login cooldown: %w", err)
+	}
+	uploadLimiter, err := cache.NewLimiter(10, time.Minute, 3, 10000)
+	if err != nil {
+		return nil, fmt.Errorf("initialize upload rate limiter: %w", err)
+	}
+	apiBurst := min(30, settings.APIRateLimit)
+	apiLimiter, err := cache.NewLimiter(settings.APIRateLimit, time.Minute, apiBurst, 10000)
 	if err != nil {
 		return nil, fmt.Errorf("initialize API rate limiter: %w", err)
 	}
 	h := &handler{
-		db: db, templates: templates, media: mediaStore, themes: themeManager, plugins: pluginManager,
-		cache: responseCache, backupDir: settings.BackupDir,
+		db: db, templates: templates, media: mediaStore, menus: menuStore, themes: themeManager, plugins: pluginManager,
+		cache: responseCache, loginProtection: loginProtection, backupDir: settings.BackupDir,
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFiles))))
@@ -164,21 +189,36 @@ func NewHandler(db *sql.DB, options ...Options) (http.Handler, error) {
 	})
 	mux.HandleFunc("GET /admin/setup", h.setupForm)
 	mux.HandleFunc("POST /admin/setup", h.setup)
-	mux.Handle("GET /admin/login", loginLimiter.Middleware("login", http.HandlerFunc(h.loginForm)))
-	mux.Handle("POST /admin/login", loginLimiter.Middleware("login", http.HandlerFunc(h.login)))
+	mux.HandleFunc("GET /admin/login", h.loginForm)
+	loginHandler := loginLimiter.Middleware("login", http.HandlerFunc(h.login))
+	mux.Handle("POST /admin/login", h.loginProtectionMiddleware(loginHandler))
 	mux.HandleFunc("GET /admin/", h.dashboard)
 	mux.HandleFunc("POST /admin/logout", h.logout)
 	mux.HandleFunc("GET /admin/posts", h.listPosts)
 	mux.HandleFunc("GET /admin/pages", h.listPages)
 	mux.HandleFunc("GET /admin/media", h.mediaLibrary)
+	mux.HandleFunc("GET /admin/media/picker", h.mediaPicker)
 	mux.HandleFunc("GET /admin/appearance", h.appearance)
+	mux.HandleFunc("GET /admin/appearance/install", h.themeInstallPage)
+	mux.HandleFunc("POST /admin/appearance/install", h.installTheme)
+	mux.HandleFunc("GET /admin/themes/install", h.themeInstallPage)
+	mux.HandleFunc("POST /admin/themes/install", h.installTheme)
+	mux.HandleFunc("GET /admin/appearance/menus", h.menuManagement)
+	mux.HandleFunc("POST /admin/appearance/menus", h.createMenu)
+	mux.HandleFunc("POST /admin/appearance/menus/{id}/items", h.addMenuItem)
+	mux.HandleFunc("POST /admin/appearance/menus/{id}/delete", h.deleteMenu)
+	mux.HandleFunc("POST /admin/appearance/menu-items/{id}/move", h.moveMenuItem)
+	mux.HandleFunc("POST /admin/appearance/menu-items/{id}/delete", h.deleteMenuItem)
 	mux.HandleFunc("POST /admin/appearance/{name}/activate", h.activateTheme)
 	mux.HandleFunc("GET /admin/plugins", h.pluginList)
+	mux.HandleFunc("GET /admin/plugins/install", h.pluginInstallPage)
+	mux.HandleFunc("POST /admin/plugins/install", h.installPlugin)
 	mux.HandleFunc("POST /admin/plugins/{id}/activate", h.activatePlugin)
 	mux.HandleFunc("POST /admin/plugins/{id}/deactivate", h.deactivatePlugin)
 	mux.HandleFunc("GET /admin/users", h.userList)
 	mux.HandleFunc("POST /admin/users", h.createUser)
 	mux.HandleFunc("GET /admin/settings", h.settings)
+	mux.HandleFunc("POST /admin/settings/save", h.saveSiteSettings)
 	mux.HandleFunc("POST /admin/settings/backup", h.createBackup)
 	mux.HandleFunc("POST /admin/settings/optimize", h.optimizeDatabase)
 	mux.HandleFunc("GET /admin/settings/backup/download", h.downloadBackup)
@@ -215,7 +255,16 @@ func NewHandler(db *sql.DB, options ...Options) (http.Handler, error) {
 		}
 		h.publicHome(w, r)
 	}), h.publicCacheKey))
-	return mux, nil
+	adminHandler := h.csrfMiddleware(mux)
+	uploadHandler := uploadLimiter.Middleware("upload", adminHandler)
+	securedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isUploadRequest(r) {
+			uploadHandler.ServeHTTP(w, r)
+			return
+		}
+		adminHandler.ServeHTTP(w, r)
+	})
+	return securityHeaders(securedHandler), nil
 }
 
 func (h *handler) publicCacheKey(r *http.Request) string {
@@ -227,7 +276,14 @@ func (h *handler) publicCacheKey(r *http.Request) string {
 		log.Printf("read active theme for public cache: %v", err)
 		return fmt.Sprintf("%s|uncacheable=%d", key, time.Now().UnixNano())
 	}
-	return key + "|theme=" + activeTheme
+	settings, err := siteconfig.Load(r.Context(), h.db)
+	if err != nil {
+		log.Printf("read site settings for public cache: %v", err)
+		return fmt.Sprintf("%s|uncacheable=%d", key, time.Now().UnixNano())
+	}
+	return fmt.Sprintf("%s|theme=%q|title=%q|tagline=%q|logo=%q|front=%q:%d|intro=%q|posts=%q",
+		key, activeTheme, settings.Title, settings.Tagline, settings.Logo, settings.ShowOnFront,
+		settings.PageOnFront, settings.HomeIntroTitle, settings.HomePostsTitle)
 }
 
 func (h *handler) setupForm(w http.ResponseWriter, r *http.Request) {
@@ -343,7 +399,9 @@ func (h *handler) login(w http.ResponseWriter, r *http.Request) {
 	username := r.FormValue("username")
 	user, err := auth.Authenticate(r.Context(), h.db, username, r.FormValue("password"))
 	if errors.Is(err, auth.ErrInvalidCredentials) {
-		slog.Warn("authentication failed", "username", username, "remote_addr", clientAddress(r))
+		ip := clientAddress(r)
+		blocked := h.loginProtection.Failed(ip, time.Now())
+		slog.Warn("authentication failed", "remote_addr", ip, "cooldown_started", blocked)
 		h.renderWithCSRF(w, r, "login.html", formData{
 			Username: username,
 			Error:    "Usuário ou senha inválidos.",
@@ -352,10 +410,13 @@ func (h *handler) login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
+		slog.Error("authenticate administrator", "remote_addr", clientAddress(r), "error", err)
 		http.Error(w, "failed to authenticate", http.StatusInternalServerError)
 		return
 	}
+	h.loginProtection.Clear(clientAddress(r))
 	if err := h.startSession(w, r, user.ID); err != nil {
+		slog.Error("start authenticated session", "remote_addr", clientAddress(r), "error", err)
 		http.Error(w, "failed to start session", http.StatusInternalServerError)
 		return
 	}
@@ -437,6 +498,14 @@ func (h *handler) startSession(w http.ResponseWriter, r *http.Request, userID in
 	if err != nil {
 		return err
 	}
+	if previousToken, err := sessionToken(r); err == nil {
+		if err := auth.DeleteSession(r.Context(), h.db, previousToken); err != nil {
+			if cleanupErr := auth.DeleteSession(r.Context(), h.db, token); cleanupErr != nil {
+				return fmt.Errorf("rotate session: %v; revoke new session: %w", err, cleanupErr)
+			}
+			return fmt.Errorf("rotate previous session: %w", err)
+		}
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    token,
@@ -517,10 +586,11 @@ func issueCSRFToken(w http.ResponseWriter, r *http.Request) (string, error) {
 
 func validCSRFToken(r *http.Request) bool {
 	cookie, err := r.Cookie(csrfCookieName)
-	if err != nil || cookie.Value == "" {
+	values := r.PostForm["csrf_token"]
+	if err != nil || len(values) != 1 || cookie.Value == "" {
 		return false
 	}
-	return subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(r.FormValue("csrf_token"))) == 1
+	return subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(values[0])) == 1
 }
 
 func sessionToken(r *http.Request) (string, error) {

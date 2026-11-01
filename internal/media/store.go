@@ -61,15 +61,11 @@ func NewStore(db *sql.DB, root string, maxSize int64) (*Store, error) {
 		return nil, fmt.Errorf("resolve upload directory: %w", err)
 	}
 	absoluteRoot = filepath.Clean(absoluteRoot)
-	if err := os.MkdirAll(absoluteRoot, 0750); err != nil {
+	if err := os.MkdirAll(absoluteRoot, 0755); err != nil {
 		return nil, fmt.Errorf("create upload directory: %w", err)
 	}
-	info, err := os.Stat(absoluteRoot)
-	if err != nil {
-		return nil, fmt.Errorf("inspect upload directory: %w", err)
-	}
-	if !info.IsDir() {
-		return nil, fmt.Errorf("upload path is not a directory")
+	if err := ensureDirectory(absoluteRoot); err != nil {
+		return nil, fmt.Errorf("prepare upload directory: %w", err)
 	}
 	return &Store{db: db, root: absoluteRoot, maxSize: maxSize}, nil
 }
@@ -92,9 +88,19 @@ func (s *Store) Save(ctx context.Context, originalFilename, altText string, sour
 
 	now := time.Now().UTC()
 	relativeDir := filepath.Join(now.Format("2006"), now.Format("01"))
-	directory := filepath.Join(s.root, relativeDir)
-	if err := os.MkdirAll(directory, 0750); err != nil {
-		return Item{}, fmt.Errorf("create upload directory: %w", err)
+	yearDirectory := filepath.Join(s.root, now.Format("2006"))
+	if err := os.MkdirAll(yearDirectory, 0755); err != nil {
+		return Item{}, fmt.Errorf("create upload year directory: %w", err)
+	}
+	if err := ensureDirectory(yearDirectory); err != nil {
+		return Item{}, fmt.Errorf("prepare upload year directory: %w", err)
+	}
+	directory := filepath.Join(yearDirectory, now.Format("01"))
+	if err := os.MkdirAll(directory, 0755); err != nil {
+		return Item{}, fmt.Errorf("create upload month directory: %w", err)
+	}
+	if err := ensureDirectory(directory); err != nil {
+		return Item{}, fmt.Errorf("prepare upload month directory: %w", err)
 	}
 
 	randomName := make([]byte, 16)
@@ -239,6 +245,20 @@ func (s *Store) FindByPath(ctx context.Context, publicPath string) (Item, error)
 		return Item{}, fmt.Errorf("lookup media path: %w", err)
 	}
 	return item, nil
+}
+
+func ensureDirectory(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return fmt.Errorf("path must be a directory, not a symlink")
+	}
+	if err := os.Chmod(path, 0755); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *Store) Delete(ctx context.Context, id int64) error {

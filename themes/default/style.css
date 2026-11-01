@@ -102,6 +102,18 @@ a:focus-visible {
   color: var(--accent);
 }
 
+.brand-logo {
+  width: auto;
+  max-width: min(220px, 48vw);
+  max-height: 48px;
+  display: block;
+  object-fit: contain;
+}
+
+.brand-small .brand-logo {
+  max-height: 36px;
+}
+
 .site-nav a,
 .post-meta,
 .eyebrow {

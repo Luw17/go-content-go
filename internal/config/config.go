@@ -20,6 +20,7 @@ const (
 	defaultThemesPath  = "themes"
 	defaultPluginsPath = "plugins"
 	defaultBackupPath  = "backups"
+	defaultAPIRate     = 60
 )
 
 // Config contains the runtime settings for the application.
@@ -31,6 +32,7 @@ type Config struct {
 	ThemesPath    string
 	PluginsPath   string
 	BackupPath    string
+	APIRateLimit  int
 }
 
 // Load reads settings from flags, environment variables, an optional dotenv
@@ -46,6 +48,7 @@ func Load(args []string) (Config, error) {
 	themesPathFlag := flags.String("themes", defaultThemesPath, "themes directory")
 	pluginsPathFlag := flags.String("plugins", defaultPluginsPath, "plugins directory")
 	backupsPathFlag := flags.String("backups", defaultBackupPath, "database backup directory")
+	apiRateLimitFlag := flags.Int("api-rate-limit", defaultAPIRate, "maximum REST API requests per IP per minute")
 	if err := flags.Parse(args); err != nil {
 		return Config{}, fmt.Errorf("parse flags: %w", err)
 	}
@@ -86,6 +89,23 @@ func Load(args []string) (Config, error) {
 	if maxUploadSize < 1 || maxUploadSize > 100<<20 {
 		return Config{}, fmt.Errorf("maximum upload size must be between 1 byte and 100 MiB")
 	}
+	apiRateLimit := *apiRateLimitFlag
+	if !wasFlagSet(flags, "api-rate-limit") {
+		value, ok := os.LookupEnv("GO_CONTENT_GO_API_RATE_LIMIT")
+		if !ok {
+			value, ok = dotenv["GO_CONTENT_GO_API_RATE_LIMIT"]
+		}
+		if ok {
+			parsed, err := strconv.Atoi(value)
+			if err != nil {
+				return Config{}, fmt.Errorf("parse GO_CONTENT_GO_API_RATE_LIMIT: %w", err)
+			}
+			apiRateLimit = parsed
+		}
+	}
+	if apiRateLimit < 1 || apiRateLimit > 10000 {
+		return Config{}, fmt.Errorf("API rate limit must be between 1 and 10000 requests per minute")
+	}
 
 	return Config{
 		Address:       setting(flags, "addr", "GO_CONTENT_GO_ADDR", *addressFlag, dotenv),
@@ -95,6 +115,7 @@ func Load(args []string) (Config, error) {
 		ThemesPath:    themesPath,
 		PluginsPath:   pluginsPath,
 		BackupPath:    backupsPath,
+		APIRateLimit:  apiRateLimit,
 	}, nil
 }
 

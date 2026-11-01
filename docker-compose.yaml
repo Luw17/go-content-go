@@ -18,6 +18,7 @@ services:
       GO_CONTENT_GO_DB: /app/data/go-content-go.db
       GO_CONTENT_GO_UPLOADS: /app/uploads
       GO_CONTENT_GO_BACKUPS: /app/backups
+      GO_CONTENT_GO_API_RATE_LIMIT: ${GO_CONTENT_GO_API_RATE_LIMIT:-60}
       GO_CONTENT_GO_THEMES: /app/themes
       GO_CONTENT_GO_PLUGINS: /app/plugins
 
