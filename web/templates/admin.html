@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{.Title}} | Go Content Go!</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="/static/htmx.min.js" defer></script>
+    <script src="/static/admin.js" defer></script>
+  </head>
+  <body class="admin-body">
+    <aside class="admin-sidebar">
+      <a class="brand" href="/admin/">Go Content Go!</a>
+      <nav aria-label="Navegação principal">
+        <a href="/admin/">Visão geral</a>
+        <a href="/admin/posts">Posts</a>
+        <a href="/admin/pages">Páginas</a>
+        <a href="/admin/media">Mídias</a>
+        <a href="/admin/appearance">Aparência</a>
+        <a href="/admin/plugins">Plugins</a>
+        <a href="/admin/users">Usuários</a>
+        <a href="/admin/settings">Configurações</a>
+      </nav>
+    </aside>
+    <div class="admin-main">
+      <header class="admin-topbar">
+        <a href="/" target="_blank" rel="noreferrer">Ver site ↗</a>
+        <div class="topbar-actions">
+          <a class="button button-primary" href="/admin/posts/new">Criar novo</a>
+          <span class="profile">{{.Username}}</span>
+          <form method="post" action="/admin/logout">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <button class="button button-quiet" type="submit">Sair</button>
+          </form>
+        </div>
+      </header>
+      <main id="admin-content" class="admin-content" hx-boost="true">
+        {{if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}
+        {{if .Error}}<p class="error notice" role="alert">{{.Error}}</p>{{end}}
+        {{if eq .Mode "dashboard"}}
+          <div class="page-heading">
+            <div><p class="eyebrow">Painel</p><h1>Visão geral</h1></div>
+            <a class="button button-primary" href="/admin/posts/new">Escrever post</a>
+          </div>
+          <section class="welcome-card">
+            <h2>Bem-vindo, {{.Username}}</h2>
+            <p>Seu espaço está pronto. Crie um post ou uma página para começar.</p>
+            <div class="quick-links">
+              <a href="/admin/posts">Gerenciar posts</a>
+              <a href="/admin/pages">Gerenciar páginas</a>
+              <a href="/admin/pages/new">Criar página</a>
+            </div>
+          </section>
+        {{else if eq .Mode "list"}}
+          <div class="page-heading">
+            <div><p class="eyebrow">Conteúdo</p><h1>{{.Title}}</h1></div>
+            <a class="button button-primary" href="/admin/{{.ContentType}}s/new">Criar {{.ContentTypeLabel}}</a>
+          </div>
+          <div class="list-tabs">
+            {{if .Trashed}}
+              <a href="/admin/{{.ContentType}}s">Conteúdo publicado e rascunhos</a>
+              <strong>Lixeira</strong>
+            {{else}}
+              <strong>Conteúdo publicado e rascunhos</strong>
+              <a href="/admin/{{.ContentType}}s?trashed=1">Lixeira</a>
+            {{end}}
+          </div>
+          {{template "content-list-table" .}}
+        {{else if eq .Mode "form"}}
+          <div class="page-heading">
+            <div><p class="eyebrow">{{.ContentTypeLabel}}</p><h1>{{if .Item.ID}}Editar{{else}}Criar{{end}} {{.ContentTypeLabel}}</h1></div>
+          </div>
+          <form class="editor-form" method="post" action="/admin/{{.ContentType}}s/save">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <input type="hidden" name="id" value="{{.Item.ID}}">
+            <div class="editor-main">
+              <label for="title">Título</label>
+              <input id="title" name="title" type="text" maxlength="200" value="{{.Item.Title}}" required>
+              <label for="slug">Slug</label>
+              <div class="slug-field"><span>/</span><input id="slug" name="slug" type="text" maxlength="100" value="{{.Item.Slug}}" placeholder="gerado-a-partir-do-titulo" pattern="[a-z0-9]+(?:-[a-z0-9]+)*"></div>
+              <label for="content">Conteúdo <span class="muted">Markdown</span></label>
+              <textarea id="content" name="content" rows="18" maxlength="1048576"
+                hx-post="/admin/preview" hx-trigger="keyup changed delay:500ms" hx-include="closest form"
+                hx-target="#markdown-preview" hx-swap="innerHTML">{{.Item.Content}}</textarea>
+              <section class="preview-section">
+                <h2>Pré-visualização</h2>
+                <div id="markdown-preview" class="markdown-preview">{{.MarkdownPreview}}</div>
+              </section>
+            </div>
+            <aside class="editor-sidebar">
+              <section class="editor-panel">
+                <h2>Publicação</h2>
+                <label for="status">Status</label>
+                {{if eq .Role "author"}}
+                  <input id="status" name="status" type="hidden" value="draft">
+                  <p class="muted">Seu conteúdo será salvo como rascunho para revisão de um editor.</p>
+                {{else}}
+                  <select id="status" name="status">
+                    <option value="draft" {{if eq .Item.Status "draft"}}selected{{end}}>Rascunho</option>
+                    <option value="published" {{if eq .Item.Status "published"}}selected{{end}}>Publicado</option>
+                  </select>
+                {{end}}
+                <button class="button button-primary" type="submit">Salvar {{.ContentTypeLabel}}</button>
+              </section>
+              <section class="editor-panel">
+                <h2>Imagem destacada</h2>
+                <label for="featured_image">URL ou caminho em /uploads</label>
+                <input id="featured_image" name="featured_image" type="text" maxlength="2048"
+                  value="{{.Item.FeaturedImage}}" placeholder="https://… ou /uploads/…">
+              </section>
+              {{if eq .ContentType "post"}}
+                <section class="editor-panel">
+                  <h2>Categorias</h2>
+                  {{if .Categories}}
+                    <label for="category_ids">Selecionar categorias</label>
+                    <select id="category_ids" name="category_ids" multiple size="5">
+                      {{range .Categories}}
+                        <option value="{{.ID}}" {{if index $.SelectedCategories .ID}}selected{{end}}>{{repeat .Depth "— "}}{{.Name}}</option>
+                      {{end}}
+                    </select>
+                  {{else}}<p class="muted">Nenhuma categoria criada ainda.</p>{{end}}
+                  <label for="new_category">Criar categoria</label>
+                  <input id="new_category" name="new_category" type="text" maxlength="80"
+                    value="{{.NewCategory}}" placeholder="Ex.: Notícias">
+                  <label for="new_category_parent_id">Categoria superior</label>
+                  <select id="new_category_parent_id" name="new_category_parent_id">
+                    <option value="0">Nenhuma</option>
+                    {{range .Categories}}<option value="{{.ID}}">{{repeat .Depth "— "}}{{.Name}}</option>{{end}}
+                  </select>
+                  <label for="tags">Tags <span class="muted">separadas por vírgula</span></label>
+                  <input id="tags" name="tags" type="text" maxlength="1000" value="{{.TagInput}}" placeholder="produto, novidades">
+                </section>
+              {{end}}
+            </aside>
+          </form>
+        {{else if eq .Mode "media"}}
+          <div class="page-heading">
+            <div><p class="eyebrow">Biblioteca</p><h1>Mídias</h1></div>
+          </div>
+          <p class="muted">Imagens e documentos enviados para o site. Tamanho máximo: {{formatBytes .MaxUploadSize}}.</p>
+          <section id="media-content">
+            {{template "media-gallery" .}}
+          </section>
+        {{else if eq .Mode "appearance"}}
+          <div class="page-heading">
+            <div><p class="eyebrow">Personalização</p><h1>Aparência</h1></div>
+          </div>
+          <p class="muted">Escolha o tema que renderiza as páginas públicas do site.</p>
+          <section class="theme-grid">
+            {{range .Themes}}
+              <article class="welcome-card theme-card">
+                <div>
+                  <h2>{{.Name}}</h2>
+                  <p class="muted">ID: {{.ID}}</p>
+                  {{if .Author}}<p>Autor: {{.Author}}</p>{{end}}
+                  {{if .Version}}<p>Versão: {{.Version}}</p>{{end}}
+                </div>
+                {{if eq .ID $.ActiveTheme}}
+                  <strong class="theme-active">Tema ativo</strong>
+                {{else if not .Valid}}
+                  <span class="muted">Arquivos obrigatórios ausentes ou inválidos</span>
+                {{else}}
+                  <form method="post" action="/admin/appearance/{{.ID}}/activate">
+                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                    <button class="button button-primary" type="submit">Ativar tema</button>
+                  </form>
+                {{end}}
+              </article>
+            {{else}}
+              <p class="empty-state">Nenhum tema encontrado. O tema padrão embutido continuará ativo.</p>
+            {{end}}
+          </section>
+        {{else if eq .Mode "plugins"}}
+          <div class="page-heading">
+            <div><p class="eyebrow">Extensões</p><h1>Plugins</h1></div>
+          </div>
+          <p class="muted">Plugins Lua executam somente os hooks selecionados, com timeout por evento.</p>
+          <section class="plugin-grid">
+            {{range .Plugins}}
+              <article class="welcome-card plugin-card">
+                <div>
+                  <h2>{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</h2>
+                  <p>{{.Description}}</p>
+                  <p class="muted">ID: {{.ID}} · Versão: {{if .Version}}{{.Version}}{{else}}—{{end}} · Autor: {{if .Author}}{{.Author}}{{else}}—{{end}}</p>
+                  <p class="muted">Hooks: {{range $index, $hook := .Hooks}}{{if $index}}, {{end}}{{$hook}}{{else}}nenhum{{end}}</p>
+                </div>
+                {{if .Active}}
+                  <strong class="plugin-active">Ativo</strong>
+                  <form method="post" action="/admin/plugins/{{.ID}}/deactivate">
+                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                    <button class="button button-quiet" type="submit">Desativar</button>
+                  </form>
+                  {{if not .Valid}}<span class="error" role="status">Arquivos inválidos; desative este plugin.</span>{{end}}
+                {{else if not .Valid}}
+                  <span class="error" role="status">Manifesto ou arquivo principal inválido</span>
+                {{else}}
+                  <strong class="muted">Inativo</strong>
+                  <form method="post" action="/admin/plugins/{{.ID}}/activate">
+                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                    <button class="button button-primary" type="submit">Ativar</button>
+                  </form>
+                {{end}}
+              </article>
+            {{else}}
+              <p class="empty-state">Nenhum plugin encontrado.</p>
+            {{end}}
+          </section>
+        {{else if eq .Mode "users"}}
+          <div class="page-heading"><div><p class="eyebrow">Administração</p><h1>Usuários</h1></div></div>
+          <section class="editor-panel">
+            <h2>Criar usuário</h2>
+            <form class="editor-form" method="post" action="/admin/users">
+              <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+              <label for="username">Nome de usuário</label>
+              <input id="username" name="username" minlength="3" maxlength="32" pattern="[a-zA-Z0-9_-]+" required>
+              <label for="password">Senha (12 a 72 caracteres)</label>
+              <input id="password" name="password" type="password" minlength="12" maxlength="72" required>
+              <label for="role">Papel</label>
+              <select id="role" name="role" required>
+                <option value="editor">Editor</option>
+                <option value="author">Autor</option>
+                <option value="admin">Administrador</option>
+              </select>
+              <button class="button button-primary" type="submit">Criar usuário</button>
+            </form>
+          </section>
+          <section class="content-list">
+            <h2>Usuários existentes</h2>
+            {{range .Users}}
+              <article class="content-row"><strong>{{.Username}}</strong><span>{{.Role}}</span></article>
+            {{else}}
+              <p class="empty-state">Nenhum usuário cadastrado.</p>
+            {{end}}
+          </section>
+        {{else if eq .Mode "settings"}}
+          <div class="page-heading"><div><p class="eyebrow">Administração</p><h1>Configurações</h1></div></div>
+          <section class="welcome-card">
+            <h2>Banco de dados</h2>
+            <p>Crie uma cópia consistente do SQLite sem interromper o servidor ou baixe um backup agora.</p>
+            <form method="post" action="/admin/settings/backup">
+              <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+              <button class="button button-primary" type="submit">Criar backup local</button>
+            </form>
+            <p><a class="button" href="/admin/settings/backup/download">Baixar backup agora</a></p>
+            <form method="post" action="/admin/settings/optimize">
+              <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+              <button class="button" type="submit">Otimizar banco de dados</button>
+            </form>
+          </section>
+        {{else if eq .Mode "placeholder"}}
+          <div class="page-heading"><div><p class="eyebrow">Administração</p><h1>{{.Title}}</h1></div></div>
+          <section class="welcome-card"><p>Esta área será implementada em uma próxima etapa do roadmap.</p></section>
+        {{end}}
+      </main>
+    </div>
+  </body>
+</html>

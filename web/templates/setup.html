@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Configuração inicial | Go Content Go!</title>
+    <link rel="stylesheet" href="/static/style.css">
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Configuração inicial</p>
+      <h1>Criar administrador</h1>
+      <p>Este primeiro usuário terá acesso de administrador ao CMS.</p>
+      {{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
+      <form method="post" action="/admin/setup">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+        <label for="username">Nome de usuário</label>
+        <input id="username" name="username" type="text" minlength="3" maxlength="32"
+          pattern="[a-zA-Z0-9_-]+" autocomplete="username" value="{{.Username}}" required>
+        <label for="password">Senha (12 a 72 caracteres)</label>
+        <input id="password" name="password" type="password" minlength="12" maxlength="72"
+          autocomplete="new-password" required>
+        <label for="password_confirmation">Confirme a senha</label>
+        <input id="password_confirmation" name="password_confirmation" type="password"
+          minlength="12" maxlength="72" autocomplete="new-password" required>
+        <button type="submit">Criar administrador</button>
+      </form>
+    </main>
+  </body>
+</html>

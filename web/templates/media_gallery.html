@@ -1,0 +1,47 @@
+{{define "media-gallery"}}
+  {{if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}
+  {{if .Error}}<p class="error notice" role="alert">{{.Error}}</p>{{end}}
+  <form class="media-upload" method="post" action="/admin/media/upload" enctype="multipart/form-data"
+    hx-post="/admin/media/upload" hx-encoding="multipart/form-data" hx-target="#media-content" hx-swap="innerHTML">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <div class="upload-picker">
+      <label for="media-file">Adicionar arquivos</label>
+      <input id="media-file" name="file" type="file" accept=".jpg,.jpeg,.png,.webp,.gif,.svg,.pdf"
+        aria-describedby="media-file-help" required>
+      <p id="media-file-help" class="muted">JPG, PNG, WebP, GIF, SVG ou PDF. Até {{formatBytes .MaxUploadSize}} por arquivo.</p>
+      <label for="media-alt">Texto alternativo <span class="muted">(opcional)</span></label>
+      <input id="media-alt" name="alt_text" type="text" maxlength="500" placeholder="Descreva a imagem">
+      <button class="button button-primary" type="submit">Enviar arquivo</button>
+    </div>
+  </form>
+  <div class="media-grid">
+    {{if .MediaItems}}
+      {{range .MediaItems}}
+        <article class="media-card">
+          <div class="media-preview">
+            {{if hasPrefix .FileType "image/"}}
+              <img src="{{.Filepath}}" alt="{{.AltText}}" loading="lazy">
+            {{else}}
+              <span class="media-file-icon">PDF</span>
+            {{end}}
+          </div>
+          <div class="media-card-info">
+            <strong title="{{.Filename}}">{{.Filename}}</strong>
+            <span class="muted">{{formatBytes .FileSize}}</span>
+          </div>
+          <div class="media-card-actions">
+            <button type="button" class="copy-media-url" data-copy-url="{{.Filepath}}">Copiar URL</button>
+            <form method="post" action="/admin/media/{{.ID}}/delete"
+              hx-post="/admin/media/{{.ID}}/delete" hx-target="#media-content" hx-swap="innerHTML"
+              hx-confirm="Excluir este arquivo permanentemente?">
+              <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+              <button class="danger-link" type="submit">Excluir</button>
+            </form>
+          </div>
+        </article>
+      {{end}}
+    {{else}}
+      <p class="empty-state">Nenhuma mídia enviada ainda.</p>
+    {{end}}
+  </div>
+{{end}}

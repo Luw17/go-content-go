@@ -1,0 +1,45 @@
+{{define "content-list-table"}}
+<div id="content-table" class="table-wrap">
+  <table>
+    <thead><tr><th>Título</th><th>Status</th><th>Atualizado</th><th>Ações</th></tr></thead>
+    <tbody>{{template "content-list-rows" .}}</tbody>
+  </table>
+</div>
+{{end}}
+{{define "content-list-rows"}}
+  {{if .Items}}
+    {{range .Items}}
+      <tr>
+        <td><a class="content-title" href="/admin/{{.Type}}s/{{.ID}}/edit">{{.Title}}</a><span class="content-slug">/{{.Slug}}</span></td>
+        <td><span class="status status-{{.Status}}">{{if eq .Status "published"}}Publicado{{else}}Rascunho{{end}}</span></td>
+        <td>{{.UpdatedAt}}</td>
+        <td>
+          <div class="row-actions">
+            <a href="/admin/{{.Type}}s/{{.ID}}/edit">Editar</a>
+            {{if $.Trashed}}
+              <form method="post" action="/admin/content/{{.ID}}/restore" hx-post="/admin/content/{{.ID}}/restore" hx-target="#content-table" hx-swap="outerHTML">
+                <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="content_type" value="{{.Type}}">
+                <button type="submit">Restaurar</button>
+              </form>
+              <form method="post" action="/admin/content/{{.ID}}/delete" hx-post="/admin/content/{{.ID}}/delete" hx-target="#content-table" hx-swap="outerHTML" hx-confirm="Excluir permanentemente este conteúdo?">
+                <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="content_type" value="{{.Type}}">
+                <button class="danger-link" type="submit">Excluir</button>
+              </form>
+            {{else}}
+              <form method="post" action="/admin/content/{{.ID}}/status" hx-post="/admin/content/{{.ID}}/status" hx-target="#content-table" hx-swap="outerHTML">
+                <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="content_type" value="{{.Type}}">
+                {{if eq .Status "published"}}<input type="hidden" name="status" value="draft"><button type="submit">Despublicar</button>{{else}}<input type="hidden" name="status" value="published"><button type="submit">Publicar</button>{{end}}
+              </form>
+              <form method="post" action="/admin/content/{{.ID}}/trash" hx-post="/admin/content/{{.ID}}/trash" hx-target="#content-table" hx-swap="outerHTML" hx-confirm="Mover este conteúdo para a lixeira?">
+                <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="content_type" value="{{.Type}}">
+                <button class="danger-link" type="submit">Lixeira</button>
+              </form>
+            {{end}}
+          </div>
+        </td>
+      </tr>
+    {{end}}
+  {{else}}
+    <tr><td class="empty-state" colspan="4">{{if $.Trashed}}A lixeira está vazia.{{else}}Nenhum conteúdo por aqui.{{end}}</td></tr>
+  {{end}}
+{{end}}

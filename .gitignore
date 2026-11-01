@@ -28,6 +28,21 @@ go.work.sum
 # env file
 .env
 
+# Local content and uploaded media
+/data/
+/uploads/
+/backups/
+
+# Runtime plugins stay local; keep the plugin engine under internal/plugins tracked.
+/plugins/
+
+# Only the official default public theme is distributed with the core.
+/themes/*
+!/themes/themes.go
+!/themes/themes_test.go
+!/themes/default/
+!/themes/default/**
+
 # Editor/IDE
 # .idea/
 # .vscode/

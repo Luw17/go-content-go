@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <meta name="description" content="Artigos e ideias publicados no Go Content Go!">
+    <title>Início | Go Content Go!</title>
+    <link rel="stylesheet" href="/themes/{{.Theme}}/style.css">
+    {{.HeadTags}}
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Go Content Go! — início">Go Content Go<span>!</span></a>
+      <nav class="site-nav" aria-label="Navegação principal">
+        <a href="/">Início</a>
+      </nav>
+    </header>
+    <main class="site-main">
+      <section class="intro">
+        <p class="eyebrow">Go Content Go!</p>
+        <h1>Ideias para ler com calma.</h1>
+        <p class="intro-copy">Artigos, novidades e pensamentos publicados por aqui.</p>
+      </section>
+      <section class="post-list" aria-labelledby="latest-posts">
+        <div class="section-heading">
+          <h2 id="latest-posts">Publicações recentes</h2>
+        </div>
+        {{if .Posts}}
+          {{range .Posts}}
+            <article class="post-card">
+              {{if .FeaturedImage}}
+                <a class="post-card-image" href="/{{.Slug}}" tabindex="-1" aria-hidden="true">
+                  <img src="{{.FeaturedImage}}" alt="" loading="lazy">
+                </a>
+              {{end}}
+              <div class="post-card-body">
+                <div class="post-meta">
+                  {{if .FormattedPublishedAt}}<time datetime="{{.PublishedAt}}">{{.FormattedPublishedAt}}</time>{{end}}
+                  {{if and .FormattedPublishedAt .Author}}<span aria-hidden="true">·</span>{{end}}
+                  {{if .Author}}<span>Por {{.Author}}</span>{{end}}
+                </div>
+                <h3><a href="/{{.Slug}}">{{.Title}}</a></h3>
+                {{if .Summary}}<p class="post-summary">{{.Summary}}</p>{{end}}
+                <a class="read-more" href="/{{.Slug}}">Continuar lendo <span aria-hidden="true">→</span></a>
+              </div>
+            </article>
+          {{end}}
+        {{else}}
+          <div class="empty-state">
+            <h3>As primeiras histórias estão a caminho.</h3>
+            <p>Quando um post for publicado, ele aparecerá aqui.</p>
+          </div>
+        {{end}}
+      </section>
+    </main>
+    <footer class="site-footer">
+      <a class="brand brand-small" href="/">Go Content Go<span>!</span></a>
+      <p>Feito para publicar com simplicidade.</p>
+    </footer>
+  </body>
+</html>

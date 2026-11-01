@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Go Content Go!</title>
+  </head>
+  <body>
+    <header><a href="/">Go Content Go!</a></header>
+    <main>
+      <h1>Posts</h1>
+      {{if .}}
+        {{range .}}
+          <article>
+            <h2><a href="/{{.Slug}}">{{.Title}}</a></h2>
+            <time>{{.PublishedAt}}</time>
+            {{if .Categories}}<p>Categoria: {{range $index, $category := .Categories}}{{if $index}}, {{end}}{{$category.Name}}{{end}}</p>{{end}}
+            {{if .Tags}}<p>Tags: {{range $index, $tag := .Tags}}{{if $index}}, {{end}}{{$tag}}{{end}}</p>{{end}}
+            <div>{{.HTML}}</div>
+          </article>
+        {{end}}
+      {{else}}
+        <p>Nenhum post publicado ainda.</p>
+      {{end}}
+    </main>
+  </body>
+</html>

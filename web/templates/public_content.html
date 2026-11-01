@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{.Title}}</title>
+  </head>
+  <body>
+    <header><a href="/">Go Content Go!</a></header>
+    <main>
+      <article>
+        <h1>{{.Title}}</h1>
+        {{if and (eq .Type "post") .PublishedAt}}<time>{{.PublishedAt}}</time>{{end}}
+        {{if .FeaturedImage}}<img src="{{.FeaturedImage}}" alt="">{{end}}
+        {{if .Categories}}<p>Categoria: {{range $index, $category := .Categories}}{{if $index}}, {{end}}{{$category.Name}}{{end}}</p>{{end}}
+        {{if .Tags}}<p>Tags: {{range $index, $tag := .Tags}}{{if $index}}, {{end}}{{$tag}}{{end}}</p>{{end}}
+        <div>{{.HTML}}</div>
+      </article>
+    </main>
+  </body>
+</html>

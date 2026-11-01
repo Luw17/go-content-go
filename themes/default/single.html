@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <meta name="description" content="{{.Item.Summary}}">
+    <title>{{.Item.Title}} | Go Content Go!</title>
+    <link rel="stylesheet" href="/themes/{{.Theme}}/style.css">
+    {{.HeadTags}}
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Go Content Go! — início">Go Content Go<span>!</span></a>
+      <nav class="site-nav" aria-label="Navegação principal">
+        <a href="/">Todos os artigos</a>
+      </nav>
+    </header>
+    <main class="site-main reading-main">
+      <a class="back-link" href="/">← Voltar para as publicações</a>
+      <article class="article">
+        <header class="article-header">
+          {{if .Item.Categories}}
+            <p class="eyebrow">{{range $index, $category := .Item.Categories}}{{if $index}} · {{end}}{{$category.Name}}{{end}}</p>
+          {{else}}
+            <p class="eyebrow">Artigo</p>
+          {{end}}
+          <h1>{{.Item.Title}}</h1>
+          <div class="post-meta article-meta">
+            {{if .Item.FormattedPublishedAt}}<time datetime="{{.Item.PublishedAt}}">{{.Item.FormattedPublishedAt}}</time>{{end}}
+            {{if and .Item.FormattedPublishedAt .Item.Author}}<span aria-hidden="true">·</span>{{end}}
+            {{if .Item.Author}}<span>Por {{.Item.Author}}</span>{{end}}
+          </div>
+        </header>
+        {{if .Item.FeaturedImage}}
+          <figure class="article-cover">
+            <img src="{{.Item.FeaturedImage}}" alt="" fetchpriority="high">
+          </figure>
+        {{end}}
+        <div class="article-content">{{.Item.HTML}}</div>
+        {{if .Item.Tags}}
+          <footer class="article-tags" aria-label="Tags">
+            {{range .Item.Tags}}<span class="tag">{{.}}</span>{{end}}
+          </footer>
+        {{end}}
+      </article>
+      <aside class="article-end">
+        <span class="end-mark" aria-hidden="true">✳</span>
+        <p>Obrigado pela leitura.</p>
+        <a class="read-more" href="/">Descobrir outros artigos <span aria-hidden="true">→</span></a>
+      </aside>
+    </main>
+    <footer class="site-footer">
+      <a class="brand brand-small" href="/">Go Content Go<span>!</span></a>
+      <p>Feito para publicar com simplicidade.</p>
+    </footer>
+  </body>
+</html>
