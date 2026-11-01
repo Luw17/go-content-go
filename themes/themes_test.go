@@ -18,8 +18,9 @@ func TestMissingThemeDirectoryUsesEmbeddedDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(available) != 1 || available[0].ID != DefaultName || !available[0].Valid {
-		t.Fatalf("available themes = %+v, want embedded default", available)
+	if len(available) != 2 || available[0].ID != DefaultName || !available[0].Valid ||
+		available[1].ID != "editorial" || available[1].Name != "Editorial" || !available[1].Valid {
+		t.Fatalf("available themes = %+v, want embedded default and editorial themes", available)
 	}
 	active, templates, err := manager.Resolve("not-installed")
 	if err != nil {
@@ -46,6 +47,33 @@ func TestMissingThemeDirectoryUsesEmbeddedDefault(t *testing.T) {
 	}
 	if !strings.Contains(string(css), "system-ui") {
 		t.Fatalf("embedded stylesheet missing expected CSS: %s", css)
+	}
+
+	active, templates, err = manager.Resolve("editorial")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active != "editorial" {
+		t.Fatalf("resolved theme = %q, want editorial", active)
+	}
+	rendered.Reset()
+	if err := templates.ExecuteTemplate(&rendered, "index.html", map[string]any{"Theme": active}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.String(), "/themes/editorial/style.css") {
+		t.Fatalf("embedded editorial homepage did not load its stylesheet: %s", rendered.String())
+	}
+	asset, err = manager.OpenAsset("editorial", "style.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer asset.Close()
+	css, err = io.ReadAll(asset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(css), "--accent: #d65335") {
+		t.Fatalf("embedded editorial stylesheet missing expected palette: %s", css)
 	}
 }
 

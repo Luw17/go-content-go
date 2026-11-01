@@ -20,10 +20,11 @@ Para usar outra porta no host, defina `GO_CONTENT_GO_PORT`, por exemplo
 `GO_CONTENT_GO_PORT=9000 docker compose up -d --build`.
 
 O Compose mantém o banco, uploads, backups, temas e plugins em volumes
-persistentes nomeados. Os temas `default` e `editorial` vêm na imagem; o tema
-`default` também está embutido no binário como fallback. Temas adicionais e
-plugins Alpha podem ser instalados em **Aparência → Instalar tema** e
-**Plugins → Instalar plugin**, ou colocados nos respectivos volumes em
+persistentes nomeados. Os temas `default` e `editorial` vêm na imagem e também
+estão embutidos no binário, permitindo executar o CMS sem distribuir uma pasta
+de temas separada. Temas locais adicionais e plugins Alpha podem ser instalados
+em **Aparência → Instalar tema** e **Plugins → Instalar plugin**, ou colocados
+nos respectivos volumes em
 `/app/themes/<id>` e `/app/plugins/<id>`.
 
 O painel aceita pacotes ZIP de até 20 MB. Temas devem conter `index.html`,
@@ -55,8 +56,8 @@ Para publicar no Dokploy, conecte o repositório e use o `Dockerfile` ou
 caminhos de destino: `/app/data`, `/app/uploads`, `/app/backups`, `/app/themes`
 e `/app/plugins`. Não monte um volume vazio por cima de `/app/themes` se a
 plataforma não copiar os arquivos existentes na imagem para o volume; nesse
-caso, o fallback embutido mantém o tema padrão funcional, mas o CSS e os demais
-assets personalizados precisam existir no volume.
+caso, os temas `default` e `editorial` embutidos mantêm o site funcional, mas
+CSS e demais assets de temas personalizados precisam existir no volume.
 
 ## Configurações do site
 

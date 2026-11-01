@@ -21,12 +21,14 @@ import (
 
 const DefaultName = "default"
 
+var embeddedThemeIDs = []string{DefaultName, "editorial"}
+
 var (
 	ErrNotFound = errors.New("theme not found")
 	namePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
-	//go:embed default
-	defaultFiles embed.FS
+	//go:embed default editorial
+	embeddedThemes embed.FS
 )
 
 type Theme struct {
@@ -61,8 +63,8 @@ func (m *Manager) List() ([]Theme, error) {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("read themes directory: %w", err)
 	}
-	themes := make([]Theme, 0, len(entries)+1)
-	hasDefault := false
+	themes := make([]Theme, 0, len(entries)+len(embeddedThemeIDs))
+	seen := make(map[string]bool, len(entries))
 	for _, entry := range entries {
 		if !entry.IsDir() || !ValidName(entry.Name()) {
 			continue
@@ -73,12 +75,18 @@ func (m *Manager) List() ([]Theme, error) {
 		}
 		theme.Valid = m.Validate(theme.ID) == nil
 		themes = append(themes, theme)
-		if theme.ID == DefaultName {
-			hasDefault = true
-		}
+		seen[theme.ID] = true
 	}
-	if !hasDefault {
-		themes = append(themes, Theme{ID: DefaultName, Name: DefaultName, Valid: true})
+	for _, id := range embeddedThemeIDs {
+		if seen[id] {
+			continue
+		}
+		theme := Theme{ID: id, Name: id}
+		if err := m.readEmbeddedMetadata(&theme); err != nil {
+			return nil, err
+		}
+		theme.Valid = m.Validate(id) == nil
+		themes = append(themes, theme)
 	}
 	return themes, nil
 }
@@ -127,6 +135,37 @@ func (m *Manager) readMetadata(theme *Theme) error {
 	return nil
 }
 
+func (m *Manager) readEmbeddedMetadata(theme *Theme) error {
+	files, err := embeddedThemeFS(theme.ID)
+	if err != nil {
+		return err
+	}
+	file, err := files.Open("theme.json")
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("open embedded metadata for theme %q: %w", theme.ID, err)
+	}
+	defer file.Close()
+
+	var metadata struct {
+		Name    string `json:"name"`
+		Author  string `json:"author"`
+		Version string `json:"version"`
+	}
+	decoder := json.NewDecoder(file)
+	if err := decoder.Decode(&metadata); err != nil {
+		return fmt.Errorf("parse embedded metadata for theme %q: %w", theme.ID, err)
+	}
+	if metadata.Name != "" {
+		theme.Name = metadata.Name
+	}
+	theme.Author = metadata.Author
+	theme.Version = metadata.Version
+	return nil
+}
+
 func (m *Manager) Active(ctx context.Context, db *sql.DB) (string, error) {
 	var active string
 	err := db.QueryRowContext(ctx, `SELECT value FROM options WHERE key = 'active_theme'`).Scan(&active)
@@ -153,13 +192,20 @@ func (m *Manager) ResolveWithFuncs(name string, funcs template.FuncMap) (string,
 		if err == nil {
 			return name, templates, nil
 		}
+		if files, embeddedErr := embeddedThemeFS(name); embeddedErr == nil {
+			templates, err := parseTheme(files, funcs)
+			if err != nil {
+				return "", nil, fmt.Errorf("parse embedded theme %q: %w", name, err)
+			}
+			return name, templates, nil
+		}
 		if name != DefaultName {
 			log.Printf("load active theme %q: %v; using embedded default theme", name, err)
 		} else {
 			log.Printf("load default theme: %v; using embedded default theme", err)
 		}
 	}
-	files, err := defaultFS()
+	files, err := embeddedThemeFS(DefaultName)
 	if err != nil {
 		return "", nil, fmt.Errorf("load embedded default theme: %w", err)
 	}
@@ -176,15 +222,17 @@ func (m *Manager) Validate(name string) error {
 	}
 	if _, err := m.load(name, nil); err == nil {
 		return nil
-	} else if name != DefaultName {
-		return err
+	} else {
+		files, embeddedErr := embeddedThemeFS(name)
+		if embeddedErr == nil {
+			_, embeddedErr = parseTheme(files, nil)
+			return embeddedErr
+		}
+		if name != DefaultName {
+			return err
+		}
 	}
-	files, err := defaultFS()
-	if err != nil {
-		return err
-	}
-	_, err = parseTheme(files, nil)
-	return err
+	return nil
 }
 
 func (m *Manager) InstallZip(source io.Reader, archiveName string) (string, error) {
@@ -324,13 +372,12 @@ func (m *Manager) OpenAsset(themeName, assetPath string) (fs.File, error) {
 		strings.HasPrefix(assetPath, ".."+string(filepath.Separator)) {
 		return nil, ErrNotFound
 	}
-	if themeName == DefaultName {
-		if _, err := m.load(DefaultName, nil); err != nil {
-			files, fsErr := defaultFS()
-			if fsErr != nil {
-				return nil, fsErr
-			}
+	if _, err := m.load(themeName, nil); err != nil {
+		if files, embeddedErr := embeddedThemeFS(themeName); embeddedErr == nil {
 			return files.Open(filepath.ToSlash(assetPath))
+		}
+		if themeName == DefaultName {
+			return nil, err
 		}
 	}
 	directory := filepath.Join(m.root, themeName)
@@ -373,10 +420,26 @@ func (m *Manager) OpenAsset(themeName, assetPath string) (fs.File, error) {
 	return file, nil
 }
 
-func defaultFS() (fs.FS, error) {
-	files, err := fs.Sub(defaultFiles, DefaultName)
+func embeddedThemeFS(name string) (fs.FS, error) {
+	if !ValidName(name) {
+		return nil, ErrNotFound
+	}
+	found := false
+	for _, id := range embeddedThemeIDs {
+		if name == id {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, ErrNotFound
+	}
+	files, err := fs.Sub(embeddedThemes, name)
 	if err != nil {
-		return nil, fmt.Errorf("open embedded default theme: %w", err)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("open embedded theme %q: %w", name, err)
 	}
 	return files, nil
 }
