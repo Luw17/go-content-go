@@ -22,6 +22,7 @@ import (
 	"github.com/Luw17/go-content-go/internal/database"
 	"github.com/Luw17/go-content-go/internal/navigation"
 	"github.com/Luw17/go-content-go/internal/siteconfig"
+	embeddedweb "github.com/Luw17/go-content-go/web"
 )
 
 func TestNavigationMenuAdminAndPublicRendering(t *testing.T) {
@@ -324,6 +325,25 @@ func TestHandlerServesEmbeddedPagesAndAssets(t *testing.T) {
 			}
 		})
 	}
+	staticWithoutVersion := httptest.NewRecorder()
+	handler.ServeHTTP(staticWithoutVersion, httptest.NewRequest(http.MethodGet, "/static/admin.css", nil))
+	if got := staticWithoutVersion.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Errorf("unversioned static cache policy = %q, want no-cache", got)
+	}
+	staticWithVersion := httptest.NewRecorder()
+	adminCSSVersion, err := embeddedweb.StaticVersion("admin.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler.ServeHTTP(staticWithVersion, httptest.NewRequest(http.MethodGet, "/static/admin.css?v="+adminCSSVersion, nil))
+	if got := staticWithVersion.Header().Get("Cache-Control"); got != "public, max-age=31536000, immutable" {
+		t.Errorf("versioned static cache policy = %q, want immutable cache", got)
+	}
+	staticWithInvalidVersion := httptest.NewRecorder()
+	handler.ServeHTTP(staticWithInvalidVersion, httptest.NewRequest(http.MethodGet, "/static/admin.css?v=old", nil))
+	if got := staticWithInvalidVersion.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Errorf("invalid-version static cache policy = %q, want no-cache", got)
+	}
 }
 
 func TestPublicAPIIsRateLimited(t *testing.T) {
@@ -544,8 +564,8 @@ func TestAdminSetupLoginAndLogoutFlow(t *testing.T) {
 	if setupPage.Code != http.StatusOK {
 		t.Fatalf("setup GET status = %d, want %d", setupPage.Code, http.StatusOK)
 	}
-	if !strings.Contains(setupPage.Body.String(), `href="/static/style.css"`) ||
-		strings.Contains(setupPage.Body.String(), `href="/static/admin.css"`) {
+	if !strings.Contains(setupPage.Body.String(), `href="/static/style.css?v=`) ||
+		strings.Contains(setupPage.Body.String(), `href="/static/admin.css?v=`) {
 		t.Fatal("setup page should load only the authentication stylesheet")
 	}
 	csrfCookie := cookieNamed(t, setupPage, csrfCookieName)
@@ -638,8 +658,8 @@ func TestLoginCooldownSecurityHeadersAndInternalPathBlocking(t *testing.T) {
 	if loginPage.Code != http.StatusOK {
 		t.Fatalf("login page = %d, %s", loginPage.Code, loginPage.Body.String())
 	}
-	if !strings.Contains(loginPage.Body.String(), `href="/static/style.css"`) ||
-		strings.Contains(loginPage.Body.String(), `href="/static/admin.css"`) {
+	if !strings.Contains(loginPage.Body.String(), `href="/static/style.css?v=`) ||
+		strings.Contains(loginPage.Body.String(), `href="/static/admin.css?v=`) {
 		t.Fatal("login page should load only the authentication stylesheet")
 	}
 	for name, want := range map[string]string{
@@ -810,8 +830,8 @@ func TestAdminContentCRUDAndCleanPublicRendering(t *testing.T) {
 		t.Fatalf("new post editor status = %d, want %d", newPost.Code, http.StatusOK)
 	}
 	csrfCookie := cookieNamed(t, newPost, csrfCookieName)
-	if strings.Count(newPost.Body.String(), `href="/static/admin.css"`) != 1 ||
-		strings.Contains(newPost.Body.String(), `href="/static/style.css"`) {
+	if strings.Count(newPost.Body.String(), `href="/static/admin.css?v=`) != 1 ||
+		strings.Contains(newPost.Body.String(), `href="/static/style.css?v=`) {
 		t.Errorf("admin editor should load only the admin CSS file")
 	}
 	if !strings.Contains(newPost.Body.String(), "/static/htmx.min.js") {
@@ -836,8 +856,8 @@ func TestAdminContentCRUDAndCleanPublicRendering(t *testing.T) {
 		t.Fatalf("post listing response = %d, %q", postList.Code, postList.Body.String())
 	}
 	csrfCookie = cookieNamed(t, postList, csrfCookieName)
-	if strings.Count(postList.Body.String(), `href="/static/admin.css"`) != 1 ||
-		strings.Contains(postList.Body.String(), `href="/static/style.css"`) {
+	if strings.Count(postList.Body.String(), `href="/static/admin.css?v=`) != 1 ||
+		strings.Contains(postList.Body.String(), `href="/static/style.css?v=`) {
 		t.Errorf("admin list should load only the admin CSS file")
 	}
 	draftResponse := postHTMXForm(handler, "/admin/content/1/status", url.Values{

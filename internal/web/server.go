@@ -122,6 +122,18 @@ func NewHandler(db *sql.DB, options ...Options) (http.Handler, error) {
 	if err := pluginManager.Reload(context.Background(), db); err != nil {
 		return nil, fmt.Errorf("load active plugins: %w", err)
 	}
+	staticFiles, err := embeddedweb.StaticFiles()
+	if err != nil {
+		return nil, err
+	}
+	staticVersions := make(map[string]string, 4)
+	for _, name := range []string{"admin.css", "style.css", "admin.js", "htmx.min.js"} {
+		version, err := embeddedweb.StaticVersion(name)
+		if err != nil {
+			return nil, fmt.Errorf("version static asset %q: %w", name, err)
+		}
+		staticVersions[name] = version
+	}
 	templateFiles, err := embeddedweb.Templates()
 	if err != nil {
 		return nil, err
@@ -133,6 +145,13 @@ func NewHandler(db *sql.DB, options ...Options) (http.Handler, error) {
 		},
 		"repeat":    strings.Repeat,
 		"hasPrefix": strings.HasPrefix,
+		"staticVersion": func(name string) (string, error) {
+			version, ok := staticVersions[name]
+			if !ok {
+				return "", fmt.Errorf("unknown static asset %q", name)
+			}
+			return version, nil
+		},
 		"formatBytes": func(size int64) string {
 			if size >= 1<<20 {
 				return fmt.Sprintf("%.1f MB", float64(size)/(1<<20))
@@ -146,11 +165,6 @@ func NewHandler(db *sql.DB, options ...Options) (http.Handler, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse embedded templates: %w", err)
 	}
-	staticFiles, err := embeddedweb.StaticFiles()
-	if err != nil {
-		return nil, err
-	}
-
 	responseCache, err := cache.New(512, 30*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("initialize public response cache: %w", err)
@@ -177,7 +191,16 @@ func NewHandler(db *sql.DB, options ...Options) (http.Handler, error) {
 		cache: responseCache, loginProtection: loginProtection, backupDir: settings.BackupDir,
 	}
 	mux := http.NewServeMux()
-	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFiles))))
+	staticHandler := http.FileServer(http.FS(staticFiles))
+	mux.Handle("/static/", http.StripPrefix("/static/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.URL.Path, "/")
+		if version, ok := staticVersions[name]; ok && r.URL.Query().Get("v") == version {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			w.Header().Set("Cache-Control", "no-cache")
+		}
+		staticHandler.ServeHTTP(w, r)
+	})))
 	mux.HandleFunc("/uploads/", h.serveUpload)
 	mux.HandleFunc("/themes/", h.serveThemeAsset)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {

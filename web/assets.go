@@ -1,7 +1,9 @@
 package web
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"fmt"
 	"io/fs"
 )
@@ -25,4 +27,18 @@ func StaticFiles() (fs.FS, error) {
 		return nil, fmt.Errorf("open embedded static files: %w", err)
 	}
 	return static, nil
+}
+
+// StaticVersion returns a content hash suitable for cache-busting asset URLs.
+func StaticVersion(filename string) (string, error) {
+	static, err := StaticFiles()
+	if err != nil {
+		return "", err
+	}
+	content, err := fs.ReadFile(static, filename)
+	if err != nil {
+		return "", fmt.Errorf("read embedded static asset %q: %w", filename, err)
+	}
+	hash := sha256.Sum256(content)
+	return hex.EncodeToString(hash[:]), nil
 }

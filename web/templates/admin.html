@@ -4,10 +4,10 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{.Title}} | Go Content Go!</title>
-    <link rel="stylesheet" href="/static/admin.css">
+    <link rel="stylesheet" href="/static/admin.css?v={{staticVersion "admin.css"}}">
     <meta name="htmx-config" content='{"includeIndicatorStyles":false}'>
-    <script src="/static/htmx.min.js" defer></script>
-    <script src="/static/admin.js" defer></script>
+    <script src="/static/htmx.min.js?v={{staticVersion "htmx.min.js"}}" defer></script>
+    <script src="/static/admin.js?v={{staticVersion "admin.js"}}" defer></script>
   </head>
   <body class="admin-body">
     <aside class="admin-sidebar">
