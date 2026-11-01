@@ -1,0 +1,29 @@
+services:
+  cms:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: go-content-go:latest
+    restart: unless-stopped
+    ports:
+      - "${GO_CONTENT_GO_PORT:-8080}:8080"
+    volumes:
+      - cms-data:/app/data
+      - cms-uploads:/app/uploads
+      - cms-backups:/app/backups
+      - cms-themes:/app/themes
+      - cms-plugins:/app/plugins
+    environment:
+      GO_CONTENT_GO_ADDR: ":8080"
+      GO_CONTENT_GO_DB: /app/data/go-content-go.db
+      GO_CONTENT_GO_UPLOADS: /app/uploads
+      GO_CONTENT_GO_BACKUPS: /app/backups
+      GO_CONTENT_GO_THEMES: /app/themes
+      GO_CONTENT_GO_PLUGINS: /app/plugins
+
+volumes:
+  cms-data:
+  cms-uploads:
+  cms-backups:
+  cms-themes:
+  cms-plugins:
