@@ -377,7 +377,7 @@
           </section>
         {{else if eq .Mode "settings"}}
           <div class="page-heading"><div><p class="eyebrow">Administração</p><h1>Configurações</h1></div></div>
-          <section class="welcome-card">
+          <section class="welcome-card settings-card">
             <h2>Identidade do site</h2>
             <p>Defina o nome, a descrição e o logotipo que aparecem no site público.</p>
             <form class="editor-form" method="post" action="/admin/settings/save">
@@ -404,7 +404,7 @@
               <button class="button button-primary" type="submit">Salvar identidade</button>
             </form>
           </section>
-          <section class="welcome-card">
+          <section class="welcome-card settings-card">
             <h2>Configurações de leitura</h2>
             <p>Escolha o que será exibido na página inicial.</p>
             <form class="editor-form" method="post" action="/admin/settings/save">
@@ -431,7 +431,7 @@
               <button class="button button-primary" type="submit">Salvar leitura</button>
             </form>
           </section>
-          <section class="welcome-card">
+          <section class="welcome-card settings-card">
             <h2>Banco de dados</h2>
             <p>Crie uma cópia consistente do SQLite sem interromper o servidor ou baixe um backup agora.</p>
             <form method="post" action="/admin/settings/backup">
