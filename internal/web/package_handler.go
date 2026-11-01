@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/Luw17/go-content-go/internal/packagezip"
+	themeengine "github.com/Luw17/go-content-go/themes"
 )
 
 func (h *handler) themeInstallPage(w http.ResponseWriter, r *http.Request) {
@@ -96,6 +97,8 @@ func (h *handler) installPackageUpload(w http.ResponseWriter, r *http.Request, k
 		http.Redirect(w, r, listURL+"?install_error=too-large", http.StatusSeeOther)
 	case errors.Is(err, packagezip.ErrAlreadyExists):
 		http.Redirect(w, r, listURL+"?install_error=exists", http.StatusSeeOther)
+	case errors.Is(err, themeengine.ErrBundledTheme):
+		http.Redirect(w, r, listURL+"?install_error=bundled", http.StatusSeeOther)
 	case errors.Is(err, packagezip.ErrInvalidPackage):
 		http.Redirect(w, r, listURL+"?install_error=invalid", http.StatusSeeOther)
 	default:
@@ -112,6 +115,8 @@ func packageInstallErrorMessage(code string) string {
 		return "O pacote excede o limite de 20 MB."
 	case "exists":
 		return "Já existe um pacote instalado com esse identificador."
+	case "bundled":
+		return "Os temas Default e Editorial vêm com o CMS e não podem ser substituídos por upload. Use outro identificador para instalar uma versão alternativa."
 	case "invalid":
 		return "Pacote inválido. Verifique o arquivo ZIP e os arquivos obrigatórios."
 	case "failed":

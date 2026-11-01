@@ -10,8 +10,6 @@ RUN mkdir -p /runtime/data /runtime/uploads /runtime/backups /runtime/plugins \
 FROM scratch
 WORKDIR /app
 COPY --from=build --chown=65532:65532 /runtime/ /app/
-COPY --from=build --chown=65532:65532 /src/themes/default/ /app/themes/default/
-COPY --from=build --chown=65532:65532 /src/themes/editorial/ /app/themes/editorial/
 USER 65532:65532
 ENV GO_CONTENT_GO_ADDR=:8080 \
     GO_CONTENT_GO_DB=/app/data/go-content-go.db \

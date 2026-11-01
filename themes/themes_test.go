@@ -1,6 +1,8 @@
 package themes
 
 import (
+	"archive/zip"
+	"bytes"
 	"errors"
 	"io"
 	"os"
@@ -74,6 +76,121 @@ func TestMissingThemeDirectoryUsesEmbeddedDefault(t *testing.T) {
 	}
 	if !strings.Contains(string(css), "--accent: #d65335") {
 		t.Fatalf("embedded editorial stylesheet missing expected palette: %s", css)
+	}
+}
+
+func TestEmbeddedThemesTakePrecedenceOverPersistentThemeCopies(t *testing.T) {
+	root := t.TempDir()
+	writeTheme(t, root, DefaultName)
+	writeTheme(t, root, "editorial")
+	writeTheme(t, root, "default-antigo")
+	manager, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	available, err := manager.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(available) != 3 || available[0].Name != "Default" || available[1].Name != "Editorial" ||
+		available[2].ID != "default-antigo" {
+		t.Fatalf("theme list = %+v, want bundled themes and the separately named custom theme", available)
+	}
+
+	for _, name := range embeddedThemeIDs {
+		active, templates, err := manager.Resolve(name)
+		if err != nil {
+			t.Fatalf("resolve %q: %v", name, err)
+		}
+		if active != name {
+			t.Fatalf("resolved theme = %q, want %q", active, name)
+		}
+		var rendered strings.Builder
+		if err := templates.ExecuteTemplate(&rendered, "index.html", map[string]any{"Theme": active}); err != nil {
+			t.Fatalf("render embedded %q theme: %v", name, err)
+		}
+		if strings.Contains(rendered.String(), "custom-index") {
+			t.Errorf("%q used the stale template from the themes directory", name)
+		}
+
+		asset, err := manager.OpenAsset(name, "style.css")
+		if err != nil {
+			t.Fatalf("open %q stylesheet: %v", name, err)
+		}
+		css, err := io.ReadAll(asset)
+		closeErr := asset.Close()
+		if err != nil {
+			t.Fatalf("read %q stylesheet: %v", name, err)
+		}
+		if closeErr != nil {
+			t.Fatalf("close %q stylesheet: %v", name, closeErr)
+		}
+		if strings.Contains(string(css), "color: red") {
+			t.Errorf("%q used the stale stylesheet from the themes directory", name)
+		}
+		if name == DefaultName && !strings.Contains(string(css), `content: "|";`) {
+			t.Error("default theme did not serve its bundled menu separator")
+		}
+	}
+
+	active, templates, err := manager.Resolve("default-antigo")
+	if err != nil || active != "default-antigo" {
+		t.Fatalf("resolve older custom theme = %q, %v", active, err)
+	}
+	var rendered strings.Builder
+	if err := templates.ExecuteTemplate(&rendered, "index.html", map[string]any{"Theme": active}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.String(), "custom-index") {
+		t.Fatal("separately named older theme template was not loaded from the persistent themes directory")
+	}
+	asset, err := manager.OpenAsset(active, "style.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	css, err := io.ReadAll(asset)
+	if closeErr := asset.Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(css), "color: red") {
+		t.Fatal("separately named older theme was not loaded from the persistent themes directory")
+	}
+}
+
+func TestBundledThemeCannotBeReplacedByUpload(t *testing.T) {
+	for _, name := range embeddedThemeIDs {
+		var archive bytes.Buffer
+		writer := zip.NewWriter(&archive)
+		for filename, content := range map[string]string{
+			name + "/index.html":  "<h1>custom</h1>",
+			name + "/single.html": "<h1>custom</h1>",
+			name + "/page.html":   "<h1>custom</h1>",
+			name + "/404.html":    "<h1>custom</h1>",
+			name + "/style.css":   "body { color: red; }",
+		} {
+			file, err := writer.Create(filename)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := file.Write([]byte(content)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+
+		manager, err := New(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := manager.InstallZip(bytes.NewReader(archive.Bytes()), name+".zip"); !errors.Is(err, ErrBundledTheme) {
+			t.Errorf("install bundled theme %q error = %v, want ErrBundledTheme", name, err)
+		}
 	}
 }
 

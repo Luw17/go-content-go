@@ -20,12 +20,13 @@ Para usar outra porta no host, defina `GO_CONTENT_GO_PORT`, por exemplo
 `GO_CONTENT_GO_PORT=9000 docker compose up -d --build`.
 
 O Compose mantém o banco, uploads, backups, temas e plugins em volumes
-persistentes nomeados. Os temas `default` e `editorial` vêm na imagem e também
-estão embutidos no binário, permitindo executar o CMS sem distribuir uma pasta
-de temas separada. Temas locais adicionais e plugins Alpha podem ser instalados
-em **Aparência → Instalar tema** e **Plugins → Instalar plugin**, ou colocados
-nos respectivos volumes em
-`/app/themes/<id>` e `/app/plugins/<id>`.
+persistentes nomeados. Os temas oficiais `default` e `editorial` ficam embutidos
+no binário e não são copiados para o volume de temas. Cópias antigas com esses
+IDs no volume são ignoradas para que uma atualização do CMS atualize os temas.
+Para manter uma versão alternativa, instale-a com outro identificador, como
+`default-antigo`. Temas personalizados e plugins Alpha podem ser instalados em
+**Aparência → Instalar tema** e **Plugins → Instalar plugin**, ou colocados nos
+respectivos volumes em `/app/themes/<id>` e `/app/plugins/<id>`.
 
 O painel aceita pacotes ZIP de até 20 MB. Temas devem conter `index.html`,
 `single.html`, `page.html`, `404.html` e `style.css`; `theme.json` é opcional.
@@ -54,10 +55,8 @@ servidos por rotas HTTP.
 Para publicar no Dokploy, conecte o repositório e use o `Dockerfile` ou
 `compose.yaml`. Se configurar volumes pela interface do Dokploy, use os mesmos
 caminhos de destino: `/app/data`, `/app/uploads`, `/app/backups`, `/app/themes`
-e `/app/plugins`. Não monte um volume vazio por cima de `/app/themes` se a
-plataforma não copiar os arquivos existentes na imagem para o volume; nesse
-caso, os temas `default` e `editorial` embutidos mantêm o site funcional, mas
-CSS e demais assets de temas personalizados precisam existir no volume.
+e `/app/plugins`. O volume `/app/themes` pode permanecer montado; os temas
+oficiais são servidos do binário e os temas personalizados continuam no volume.
 
 ## Configurações do site
 

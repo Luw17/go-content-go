@@ -98,7 +98,7 @@ func InstallZip(source io.Reader, archiveName, targetRoot string, identify Ident
 	packageDir, packageDirectory := packageRoot(reader.File, stage)
 	packageID, err := identify(packageDir, filepath.Base(archiveName), packageDirectory)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrInvalidPackage, err)
+		return "", fmt.Errorf("%w: %w", ErrInvalidPackage, err)
 	}
 	if packageID == "" || packageID == "." || !fs.ValidPath(packageID) ||
 		path.Clean(packageID) != packageID || filepath.IsAbs(packageID) ||
@@ -106,7 +106,7 @@ func InstallZip(source io.Reader, archiveName, targetRoot string, identify Ident
 		return "", ErrInvalidPackage
 	}
 	if err := validate(packageDir, packageID); err != nil {
-		return "", fmt.Errorf("%w: %v", ErrInvalidPackage, err)
+		return "", fmt.Errorf("%w: %w", ErrInvalidPackage, err)
 	}
 	destination := filepath.Join(root, packageID)
 	if _, err := os.Lstat(destination); err == nil {

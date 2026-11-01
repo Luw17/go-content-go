@@ -24,8 +24,9 @@ const DefaultName = "default"
 var embeddedThemeIDs = []string{DefaultName, "editorial"}
 
 var (
-	ErrNotFound = errors.New("theme not found")
-	namePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+	ErrNotFound     = errors.New("theme not found")
+	ErrBundledTheme = errors.New("bundled theme cannot be replaced")
+	namePattern     = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
 	//go:embed default editorial
 	embeddedThemes embed.FS
@@ -65,8 +66,17 @@ func (m *Manager) List() ([]Theme, error) {
 	}
 	themes := make([]Theme, 0, len(entries)+len(embeddedThemeIDs))
 	seen := make(map[string]bool, len(entries))
+	for _, id := range embeddedThemeIDs {
+		theme := Theme{ID: id, Name: id}
+		if err := m.readEmbeddedMetadata(&theme); err != nil {
+			return nil, err
+		}
+		theme.Valid = m.Validate(id) == nil
+		themes = append(themes, theme)
+		seen[id] = true
+	}
 	for _, entry := range entries {
-		if !entry.IsDir() || !ValidName(entry.Name()) {
+		if !entry.IsDir() || !ValidName(entry.Name()) || seen[entry.Name()] {
 			continue
 		}
 		theme := Theme{ID: entry.Name(), Name: entry.Name()}
@@ -74,18 +84,6 @@ func (m *Manager) List() ([]Theme, error) {
 			return nil, err
 		}
 		theme.Valid = m.Validate(theme.ID) == nil
-		themes = append(themes, theme)
-		seen[theme.ID] = true
-	}
-	for _, id := range embeddedThemeIDs {
-		if seen[id] {
-			continue
-		}
-		theme := Theme{ID: id, Name: id}
-		if err := m.readEmbeddedMetadata(&theme); err != nil {
-			return nil, err
-		}
-		theme.Valid = m.Validate(id) == nil
 		themes = append(themes, theme)
 	}
 	return themes, nil
@@ -188,15 +186,15 @@ func (m *Manager) Resolve(name string) (string, *template.Template, error) {
 
 func (m *Manager) ResolveWithFuncs(name string, funcs template.FuncMap) (string, *template.Template, error) {
 	if ValidName(name) {
-		templates, err := m.load(name, funcs)
-		if err == nil {
-			return name, templates, nil
-		}
-		if files, embeddedErr := embeddedThemeFS(name); embeddedErr == nil {
+		if files, err := embeddedThemeFS(name); err == nil {
 			templates, err := parseTheme(files, funcs)
 			if err != nil {
 				return "", nil, fmt.Errorf("parse embedded theme %q: %w", name, err)
 			}
+			return name, templates, nil
+		}
+		templates, err := m.load(name, funcs)
+		if err == nil {
 			return name, templates, nil
 		}
 		if name != DefaultName {
@@ -220,17 +218,14 @@ func (m *Manager) Validate(name string) error {
 	if !ValidName(name) {
 		return ErrNotFound
 	}
+	if files, err := embeddedThemeFS(name); err == nil {
+		_, err = parseTheme(files, nil)
+		return err
+	}
 	if _, err := m.load(name, nil); err == nil {
 		return nil
-	} else {
-		files, embeddedErr := embeddedThemeFS(name)
-		if embeddedErr == nil {
-			_, embeddedErr = parseTheme(files, nil)
-			return embeddedErr
-		}
-		if name != DefaultName {
-			return err
-		}
+	} else if name != DefaultName {
+		return err
 	}
 	return nil
 }
@@ -244,6 +239,9 @@ func (m *Manager) InstallZip(source io.Reader, archiveName string) (string, erro
 			}
 			if !ValidName(name) {
 				return "", fmt.Errorf("theme directory name is invalid")
+			}
+			if isEmbeddedTheme(name) {
+				return "", ErrBundledTheme
 			}
 			return name, nil
 		},
@@ -372,10 +370,10 @@ func (m *Manager) OpenAsset(themeName, assetPath string) (fs.File, error) {
 		strings.HasPrefix(assetPath, ".."+string(filepath.Separator)) {
 		return nil, ErrNotFound
 	}
+	if files, err := embeddedThemeFS(themeName); err == nil {
+		return files.Open(filepath.ToSlash(assetPath))
+	}
 	if _, err := m.load(themeName, nil); err != nil {
-		if files, embeddedErr := embeddedThemeFS(themeName); embeddedErr == nil {
-			return files.Open(filepath.ToSlash(assetPath))
-		}
 		if themeName == DefaultName {
 			return nil, err
 		}
@@ -420,18 +418,20 @@ func (m *Manager) OpenAsset(themeName, assetPath string) (fs.File, error) {
 	return file, nil
 }
 
+func isEmbeddedTheme(name string) bool {
+	for _, id := range embeddedThemeIDs {
+		if name == id {
+			return true
+		}
+	}
+	return false
+}
+
 func embeddedThemeFS(name string) (fs.FS, error) {
 	if !ValidName(name) {
 		return nil, ErrNotFound
 	}
-	found := false
-	for _, id := range embeddedThemeIDs {
-		if name == id {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if !isEmbeddedTheme(name) {
 		return nil, ErrNotFound
 	}
 	files, err := fs.Sub(embeddedThemes, name)
