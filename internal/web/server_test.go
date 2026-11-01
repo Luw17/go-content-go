@@ -151,7 +151,8 @@ func TestEditorMediaPickerAndFeaturedImageValidation(t *testing.T) {
 	editor := getWithCookies(handler, "/admin/posts/new", session)
 	if editor.Code != http.StatusOK || !strings.Contains(editor.Body.String(), "Inserir mídia") ||
 		!strings.Contains(editor.Body.String(), "Selecionar imagem destacada") ||
-		!strings.Contains(editor.Body.String(), `id="media-picker-dialog"`) {
+		!strings.Contains(editor.Body.String(), `id="media-picker-dialog"`) ||
+		!strings.Contains(editor.Body.String(), `name="htmx-config" content='{"includeIndicatorStyles":false}'`) {
 		t.Fatalf("editor picker controls = %d %s", editor.Code, editor.Body.String())
 	}
 	picker := getWithCookies(handler, "/admin/media/picker?mode=inline", session)

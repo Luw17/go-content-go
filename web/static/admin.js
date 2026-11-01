@@ -27,7 +27,8 @@ document.body.addEventListener("htmx:beforeSwap", (event) => {
 });
 
 document.addEventListener("click", (event) => {
-  const openButton = event.target.closest("[data-picker-open]");
+  const target = event.target instanceof Element ? event.target : null;
+  const openButton = target?.closest("[data-picker-open]");
   if (openButton) {
     const dialog = document.getElementById("media-picker-dialog");
     if (dialog && !dialog.open) {
@@ -36,12 +37,12 @@ document.addEventListener("click", (event) => {
     return;
   }
 
-  if (event.target.closest("[data-picker-close]")) {
+  if (target?.closest("[data-picker-close]")) {
     document.getElementById("media-picker-dialog")?.close();
     return;
   }
 
-  const selected = event.target.closest("[data-media-select]");
+  const selected = target?.closest("[data-media-select]");
   if (!selected) {
     return;
   }
@@ -83,7 +84,7 @@ document.addEventListener("click", (event) => {
   }
 
   document.getElementById("media-picker-dialog")?.close();
-});
+}, true);
 
 document.body.addEventListener("htmx:responseError", (event) => {
   if (event.detail.target?.id === "media-picker-content") {
