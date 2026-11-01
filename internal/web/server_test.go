@@ -307,6 +307,7 @@ func TestHandlerServesEmbeddedPagesAndAssets(t *testing.T) {
 		{path: "/", statusCode: http.StatusOK, body: "Go Content Go!"},
 		{path: "/healthz", statusCode: http.StatusOK, body: "ok"},
 		{path: "/static/style.css", statusCode: http.StatusOK, body: "system-ui"},
+		{path: "/static/admin.css", statusCode: http.StatusOK, body: ".admin-body"},
 		{path: "/static/admin.js", statusCode: http.StatusOK, body: "data-copy-url"},
 		{path: "/themes/default/style.css", statusCode: http.StatusOK, body: "system-ui"},
 		{path: "/missing", statusCode: http.StatusNotFound, body: "404"},
@@ -543,6 +544,10 @@ func TestAdminSetupLoginAndLogoutFlow(t *testing.T) {
 	if setupPage.Code != http.StatusOK {
 		t.Fatalf("setup GET status = %d, want %d", setupPage.Code, http.StatusOK)
 	}
+	if !strings.Contains(setupPage.Body.String(), `href="/static/style.css"`) ||
+		strings.Contains(setupPage.Body.String(), `href="/static/admin.css"`) {
+		t.Fatal("setup page should load only the authentication stylesheet")
+	}
 	csrfCookie := cookieNamed(t, setupPage, csrfCookieName)
 	csrfToken := csrfFromBody(t, setupPage.Body.String())
 	if !csrfCookie.HttpOnly || csrfCookie.SameSite != http.SameSiteStrictMode {
@@ -632,6 +637,10 @@ func TestLoginCooldownSecurityHeadersAndInternalPathBlocking(t *testing.T) {
 	loginPage := getWithCookies(handler, "/admin/login")
 	if loginPage.Code != http.StatusOK {
 		t.Fatalf("login page = %d, %s", loginPage.Code, loginPage.Body.String())
+	}
+	if !strings.Contains(loginPage.Body.String(), `href="/static/style.css"`) ||
+		strings.Contains(loginPage.Body.String(), `href="/static/admin.css"`) {
+		t.Fatal("login page should load only the authentication stylesheet")
 	}
 	for name, want := range map[string]string{
 		"Content-Security-Policy": securityContentPolicy,
@@ -801,8 +810,9 @@ func TestAdminContentCRUDAndCleanPublicRendering(t *testing.T) {
 		t.Fatalf("new post editor status = %d, want %d", newPost.Code, http.StatusOK)
 	}
 	csrfCookie := cookieNamed(t, newPost, csrfCookieName)
-	if strings.Count(newPost.Body.String(), `href="/static/style.css"`) != 1 {
-		t.Errorf("admin editor should load one CSS file")
+	if strings.Count(newPost.Body.String(), `href="/static/admin.css"`) != 1 ||
+		strings.Contains(newPost.Body.String(), `href="/static/style.css"`) {
+		t.Errorf("admin editor should load only the admin CSS file")
 	}
 	if !strings.Contains(newPost.Body.String(), "/static/htmx.min.js") {
 		t.Errorf("admin editor does not load locally bundled HTMX")
@@ -826,8 +836,9 @@ func TestAdminContentCRUDAndCleanPublicRendering(t *testing.T) {
 		t.Fatalf("post listing response = %d, %q", postList.Code, postList.Body.String())
 	}
 	csrfCookie = cookieNamed(t, postList, csrfCookieName)
-	if strings.Count(postList.Body.String(), `href="/static/style.css"`) != 1 {
-		t.Errorf("admin list should load one CSS file")
+	if strings.Count(postList.Body.String(), `href="/static/admin.css"`) != 1 ||
+		strings.Contains(postList.Body.String(), `href="/static/style.css"`) {
+		t.Errorf("admin list should load only the admin CSS file")
 	}
 	draftResponse := postHTMXForm(handler, "/admin/content/1/status", url.Values{
 		"csrf_token":   {csrfFromBody(t, postList.Body.String())},
