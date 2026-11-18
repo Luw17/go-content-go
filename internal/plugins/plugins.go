@@ -391,7 +391,7 @@ func (m *Manager) DispatchAction(ctx context.Context, hook string, value any) {
 	}
 }
 
-func (m *Manager) ApplyFilters(ctx context.Context, hook string, value any) any {
+func (m *Manager) ApplyFilters(ctx context.Context, hook string, value any, extra ...any) any {
 	if !filterHooks[hook] {
 		log.Printf("refusing invalid filter hook %q", hook)
 		return value
@@ -400,7 +400,7 @@ func (m *Manager) ApplyFilters(ctx context.Context, hook string, value any) any 
 	defer cancel()
 	result := value
 	for _, plugin := range m.listeners(hook) {
-		filtered, err := m.run(ctx, plugin, hook, result)
+		filtered, err := m.run(ctx, plugin, hook, result, extra...)
 		if err != nil {
 			log.Printf("plugin %q filter %s failed; preserving previous value: %v", plugin.manifest.ID, hook, err)
 			continue
@@ -418,7 +418,7 @@ func (m *Manager) listeners(hook string) []loadedPlugin {
 	return append([]loadedPlugin(nil), m.active[hook]...)
 }
 
-func (m *Manager) run(parent context.Context, plugin loadedPlugin, hook string, value any) (result any, runErr error) {
+func (m *Manager) run(parent context.Context, plugin loadedPlugin, hook string, value any, extra ...any) (result any, runErr error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			runErr = fmt.Errorf("plugin panic recovered: %v", recovered)
@@ -455,7 +455,15 @@ func (m *Manager) run(parent context.Context, plugin loadedPlugin, hook string, 
 	if err != nil {
 		return nil, err
 	}
-	if err := state.CallByParam(lua.P{Fn: callback, NRet: 1, Protect: true}, luaValue); err != nil {
+	args := []lua.LValue{luaValue}
+	for _, item := range extra {
+		extraVal, err := pushValue(state, item)
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, extraVal)
+	}
+	if err := state.CallByParam(lua.P{Fn: callback, NRet: 1, Protect: true}, args...); err != nil {
 		return nil, err
 	}
 	return fromLua(ctx, state.Get(-1), 0, new(int))

@@ -13,27 +13,40 @@ import (
 const (
 	FrontPosts = "posts"
 	FrontPage  = "page"
+
+	RobotsIndex   = "index"
+	RobotsNoindex = "noindex"
 )
 
 var ErrInvalidSettings = errors.New("invalid site settings")
 
 type Settings struct {
-	Title          string
-	Tagline        string
-	Logo           string
-	ShowOnFront    string
-	PageOnFront    int64
-	HomeIntroTitle string
-	HomePostsTitle string
+	Title                 string
+	Tagline               string
+	Logo                  string
+	ShowOnFront           string
+	PageOnFront           int64
+	HomeIntroTitle        string
+	HomePostsTitle        string
+	SiteURL               string
+	SEODefaultDescription string
+	SEODefaultOGImage     string
+	SEOTwitterHandle      string
+	SEORobotsIndexing     string
 }
 
 func Defaults() Settings {
 	return Settings{
-		Title:          "Go Content Go!",
-		Tagline:        "Um espaço para compartilhar ideias.",
-		ShowOnFront:    FrontPosts,
-		HomeIntroTitle: "Ideias para ler com calma.",
-		HomePostsTitle: "Publicações recentes",
+		Title:                 "Go Content Go!",
+		Tagline:               "Um espaço para compartilhar ideias.",
+		ShowOnFront:           FrontPosts,
+		HomeIntroTitle:        "Ideias para ler com calma.",
+		HomePostsTitle:        "Publicações recentes",
+		SiteURL:               "",
+		SEODefaultDescription: "",
+		SEODefaultOGImage:     "",
+		SEOTwitterHandle:      "",
+		SEORobotsIndexing:     RobotsIndex,
 	}
 }
 
@@ -43,7 +56,9 @@ func Load(ctx context.Context, db *sql.DB) (Settings, error) {
 		SELECT key, value FROM options
 		WHERE key IN (
 			'site_title', 'site_tagline', 'site_logo', 'show_on_front', 'page_on_front',
-			'home_intro_title', 'home_posts_title'
+			'home_intro_title', 'home_posts_title',
+			'site_url', 'seo_default_description', 'seo_default_og_image',
+			'seo_twitter_handle', 'seo_robots_indexing'
 		)
 	`)
 	if err != nil {
@@ -81,6 +96,20 @@ func Load(ctx context.Context, db *sql.DB) (Settings, error) {
 			if strings.TrimSpace(value) != "" {
 				settings.HomePostsTitle = value
 			}
+		case "site_url":
+			settings.SiteURL = strings.TrimRight(strings.TrimSpace(value), "/")
+		case "seo_default_description":
+			settings.SEODefaultDescription = strings.TrimSpace(value)
+		case "seo_default_og_image":
+			settings.SEODefaultOGImage = strings.TrimSpace(value)
+		case "seo_twitter_handle":
+			settings.SEOTwitterHandle = strings.TrimSpace(value)
+		case "seo_robots_indexing":
+			if value == RobotsNoindex {
+				settings.SEORobotsIndexing = RobotsNoindex
+			} else {
+				settings.SEORobotsIndexing = RobotsIndex
+			}
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -98,10 +127,22 @@ func Save(ctx context.Context, db *sql.DB, settings Settings) error {
 	settings.Logo = strings.TrimSpace(settings.Logo)
 	settings.HomeIntroTitle = strings.TrimSpace(settings.HomeIntroTitle)
 	settings.HomePostsTitle = strings.TrimSpace(settings.HomePostsTitle)
+	settings.SiteURL = strings.TrimRight(strings.TrimSpace(settings.SiteURL), "/")
+	settings.SEODefaultDescription = strings.TrimSpace(settings.SEODefaultDescription)
+	settings.SEODefaultOGImage = strings.TrimSpace(settings.SEODefaultOGImage)
+	settings.SEOTwitterHandle = strings.TrimSpace(settings.SEOTwitterHandle)
+	if settings.SEORobotsIndexing != RobotsNoindex {
+		settings.SEORobotsIndexing = RobotsIndex
+	}
+
 	if settings.Title == "" || len([]rune(settings.Title)) > 120 ||
 		len([]rune(settings.Tagline)) > 250 ||
 		settings.HomeIntroTitle == "" || len([]rune(settings.HomeIntroTitle)) > 120 ||
 		settings.HomePostsTitle == "" || len([]rune(settings.HomePostsTitle)) > 120 ||
+		len([]rune(settings.SiteURL)) > 2000 ||
+		len([]rune(settings.SEODefaultDescription)) > 500 ||
+		len([]rune(settings.SEODefaultOGImage)) > 2048 ||
+		len([]rune(settings.SEOTwitterHandle)) > 100 ||
 		(settings.ShowOnFront != FrontPosts && settings.ShowOnFront != FrontPage) ||
 		(settings.ShowOnFront == FrontPage && settings.PageOnFront <= 0) ||
 		(settings.ShowOnFront == FrontPosts && settings.PageOnFront != 0) {
@@ -125,6 +166,11 @@ func Save(ctx context.Context, db *sql.DB, settings Settings) error {
 		{"page_on_front", strconv.FormatInt(settings.PageOnFront, 10)},
 		{"home_intro_title", settings.HomeIntroTitle},
 		{"home_posts_title", settings.HomePostsTitle},
+		{"site_url", settings.SiteURL},
+		{"seo_default_description", settings.SEODefaultDescription},
+		{"seo_default_og_image", settings.SEODefaultOGImage},
+		{"seo_twitter_handle", settings.SEOTwitterHandle},
+		{"seo_robots_indexing", settings.SEORobotsIndexing},
 	}
 	for _, setting := range values {
 		if _, err := tx.ExecContext(ctx, `

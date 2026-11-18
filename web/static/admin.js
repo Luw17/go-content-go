@@ -126,5 +126,41 @@ function initializeMenuItemFields() {
   }
 }
 
-document.addEventListener("DOMContentLoaded", initializeMenuItemFields);
-document.body.addEventListener("htmx:afterSettle", initializeMenuItemFields);
+function updateSERPPreview() {
+  const titleInput = document.getElementById("title");
+  const seoTitleInput = document.getElementById("seo_title");
+  const slugInput = document.getElementById("slug");
+  const descInput = document.getElementById("seo_description");
+
+  const serpTitle = document.getElementById("serp-title");
+  const serpUrl = document.getElementById("serp-url");
+  const serpDesc = document.getElementById("serp-desc");
+
+  if (!serpTitle || !serpUrl || !serpDesc) {
+    return;
+  }
+
+  const effectiveTitle = (seoTitleInput?.value || "").trim() || (titleInput?.value || "").trim() || "Título do conteúdo";
+  serpTitle.textContent = effectiveTitle;
+
+  const effectiveSlug = (slugInput?.value || "").trim();
+  serpUrl.textContent = "/" + effectiveSlug;
+
+  const effectiveDesc = (descInput?.value || "").trim() || "Prévia da descrição deste conteúdo nos resultados de busca do Google…";
+  serpDesc.textContent = effectiveDesc;
+}
+
+document.addEventListener("input", (event) => {
+  if (event.target.matches("#title, #seo_title, #slug, #seo_description")) {
+    updateSERPPreview();
+  }
+});
+
+document.addEventListener("DOMContentLoaded", () => {
+  initializeMenuItemFields();
+  updateSERPPreview();
+});
+document.body.addEventListener("htmx:afterSettle", () => {
+  initializeMenuItemFields();
+  updateSERPPreview();
+});

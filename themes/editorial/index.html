@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light">
-    {{if .Site.Tagline}}<meta name="description" content="{{.Site.Tagline}}">{{end}}
+    {{if .Site.SEODefaultDescription}}<meta name="description" content="{{.Site.SEODefaultDescription}}">{{else if .Site.Tagline}}<meta name="description" content="{{.Site.Tagline}}">{{end}}
     <title>{{.Site.Title}}</title>
     <link rel="stylesheet" href="/themes/{{.Theme}}/style.css">
     {{.HeadTags}}

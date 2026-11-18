@@ -29,6 +29,11 @@ func TestSettingsDefaultsAndPersistence(t *testing.T) {
 		Title: "Site <title>", Tagline: "A short description", Logo: "/uploads/logo.png",
 		ShowOnFront: FrontPage, PageOnFront: 42, HomeIntroTitle: "Welcome",
 		HomePostsTitle: "Latest writing",
+		SiteURL: "https://example.com",
+		SEODefaultDescription: "Custom fallback meta description",
+		SEODefaultOGImage: "/uploads/og-default.png",
+		SEOTwitterHandle: "@myblog",
+		SEORobotsIndexing: RobotsNoindex,
 	}
 	if err := Save(ctx, db, want); err != nil {
 		t.Fatal(err)
@@ -67,7 +72,8 @@ func TestSettingsValidationAndFallbacks(t *testing.T) {
 		INSERT INTO options (key, value, updated_at) VALUES
 			('site_title', '', 'now'),
 			('show_on_front', 'unexpected', 'now'),
-			('page_on_front', 'not-an-id', 'now')
+			('page_on_front', 'not-an-id', 'now'),
+			('seo_robots_indexing', 'invalid-value', 'now')
 	`); err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +81,7 @@ func TestSettingsValidationAndFallbacks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if settings.Title != Defaults().Title || settings.ShowOnFront != FrontPosts || settings.PageOnFront != 0 {
+	if settings.Title != Defaults().Title || settings.ShowOnFront != FrontPosts || settings.PageOnFront != 0 || settings.SEORobotsIndexing != RobotsIndex {
 		t.Fatalf("invalid stored settings did not use safe defaults: %+v", settings)
 	}
 }

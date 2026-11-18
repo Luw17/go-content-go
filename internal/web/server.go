@@ -304,9 +304,11 @@ func (h *handler) publicCacheKey(r *http.Request) string {
 		log.Printf("read site settings for public cache: %v", err)
 		return fmt.Sprintf("%s|uncacheable=%d", key, time.Now().UnixNano())
 	}
-	return fmt.Sprintf("%s|theme=%q|title=%q|tagline=%q|logo=%q|front=%q:%d|intro=%q|posts=%q",
+	return fmt.Sprintf("%s|theme=%q|title=%q|tagline=%q|logo=%q|front=%q:%d|intro=%q|posts=%q|url=%q|desc=%q|og=%q|tw=%q|robots=%q",
 		key, activeTheme, settings.Title, settings.Tagline, settings.Logo, settings.ShowOnFront,
-		settings.PageOnFront, settings.HomeIntroTitle, settings.HomePostsTitle)
+		settings.PageOnFront, settings.HomeIntroTitle, settings.HomePostsTitle,
+		settings.SiteURL, settings.SEODefaultDescription, settings.SEODefaultOGImage,
+		settings.SEOTwitterHandle, settings.SEORobotsIndexing)
 }
 
 func (h *handler) setupForm(w http.ResponseWriter, r *http.Request) {

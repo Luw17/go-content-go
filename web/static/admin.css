@@ -892,3 +892,82 @@
     flex-direction: column;
   }
 }
+
+/* SEO Panel & SERP Preview */
+.seo-panel {
+  margin-top: 2rem;
+  border-top: 2px solid var(--border, #e5e7eb);
+  padding-top: 1.5rem;
+}
+
+.serp-preview {
+  margin-bottom: 1.5rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 1rem;
+}
+
+.serp-preview .eyebrow {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+.serp-preview-box {
+  font-family: Arial, sans-serif;
+  line-height: 1.35;
+}
+
+.serp-url {
+  display: block;
+  font-size: 0.85rem;
+  color: #202124;
+  font-style: normal;
+  margin-bottom: 0.2rem;
+}
+
+.serp-title {
+  margin: 0 0 0.25rem 0;
+  font-size: 1.2rem;
+  font-weight: 400;
+  color: #1a0dab;
+}
+
+.serp-desc {
+  margin: 0;
+  font-size: 0.875rem;
+  color: #4d5156;
+  word-break: break-word;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+@media (max-width: 48rem) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.checkbox-container {
+  display: flex;
+  align-items: center;
+  margin-top: 1.5rem;
+}
+
+.checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+}
+

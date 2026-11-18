@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Luw17/go-content-go/internal/seo"
 	"github.com/Luw17/go-content-go/internal/siteconfig"
 	themeengine "github.com/Luw17/go-content-go/themes"
 	"github.com/microcosm-cc/bluemonday"
@@ -201,7 +202,7 @@ func (h *handler) serveThemeAsset(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *handler) renderTheme(w http.ResponseWriter, r *http.Request, templateName string, status int, data func(string, template.HTML, siteconfig.Settings) any) {
+func (h *handler) renderTheme(w http.ResponseWriter, r *http.Request, templateName string, status int, seoParams seo.Params, data func(string, template.HTML, siteconfig.Settings) any) {
 	settings, err := siteconfig.Load(r.Context(), h.db)
 	if err != nil {
 		log.Printf("load site settings for public page: %v", err)
@@ -224,7 +225,32 @@ func (h *handler) renderTheme(w http.ResponseWriter, r *http.Request, templateNa
 		http.Error(w, "Não foi possível renderizar o site.", http.StatusInternalServerError)
 		return
 	}
-	headTags := h.filteredHeadTags(r)
+	seoParams.Site = settings
+	seoParams.Request = r
+	seoHTML := seo.RenderHTML(seoParams)
+
+	contextMap := map[string]any{
+		"page_type": string(seoParams.Type),
+		"title":     settings.Title,
+		"url":       r.URL.Path,
+	}
+	if seoParams.Item != nil {
+		contextMap["content_id"] = seoParams.Item.ID
+		contextMap["content_title"] = seoParams.Item.Title
+		contextMap["content_slug"] = seoParams.Item.Slug
+		contextMap["content_type"] = seoParams.Item.Type
+		contextMap["author"] = seoParams.Item.Author
+		contextMap["featured_image"] = seoParams.Item.FeaturedImage
+	}
+	pluginTags := h.filteredHeadTags(r, contextMap)
+
+	var headTags template.HTML
+	if pluginTags != "" {
+		headTags = template.HTML(string(seoHTML) + "\n" + string(pluginTags))
+	} else {
+		headTags = seoHTML
+	}
+
 	var rendered bytes.Buffer
 	if err := templates.ExecuteTemplate(&rendered, templateName, data(active, headTags, settings)); err != nil {
 		log.Printf("render public theme %q template %s: %v", active, templateName, err)
@@ -237,8 +263,8 @@ func (h *handler) renderTheme(w http.ResponseWriter, r *http.Request, templateNa
 	_, _ = w.Write(rendered.Bytes())
 }
 
-func (h *handler) filteredHeadTags(r *http.Request) template.HTML {
-	raw, ok := h.plugins.ApplyFilters(r.Context(), "head:inject_tags", "").(string)
+func (h *handler) filteredHeadTags(r *http.Request, pageContext map[string]any) template.HTML {
+	raw, ok := h.plugins.ApplyFilters(r.Context(), "head:inject_tags", "", pageContext).(string)
 	if !ok {
 		log.Printf("plugin filter head:inject_tags returned a non-string value; discarding plugin tags")
 		return ""

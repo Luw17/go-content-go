@@ -892,14 +892,20 @@ func TestAdminContentCRUDAndCleanPublicRendering(t *testing.T) {
 	if publicHome.Code != http.StatusOK || !strings.Contains(publicHome.Body.String(), "Post seguro") {
 		t.Fatalf("public home = %d, %q", publicHome.Code, publicHome.Body.String())
 	}
-	if strings.Contains(publicHome.Body.String(), "/static/style.css") || strings.Contains(publicHome.Body.String(), "<script") {
+	if strings.Contains(publicHome.Body.String(), "/static/style.css") || strings.Contains(publicHome.Body.String(), "<script>alert") {
 		t.Errorf("public page should be unstyled by core and sanitized: %s", publicHome.Body.String())
+	}
+	if !strings.Contains(publicHome.Body.String(), `<script type="application/ld+json">`) {
+		t.Errorf("public page missing json-ld schema: %s", publicHome.Body.String())
 	}
 	publicPost := httptest.NewRecorder()
 	handler.ServeHTTP(publicPost, httptest.NewRequest(http.MethodGet, "/post-seguro", nil))
 	if publicPost.Code != http.StatusOK || !strings.Contains(publicPost.Body.String(), "<h1>Olá</h1>") ||
-		strings.Contains(publicPost.Body.String(), "<script") {
+		strings.Contains(publicPost.Body.String(), "<script>alert") {
 		t.Fatalf("public post not safely rendered: %d, %s", publicPost.Code, publicPost.Body.String())
+	}
+	if !strings.Contains(publicPost.Body.String(), `<script type="application/ld+json">`) {
+		t.Errorf("public post missing json-ld schema: %s", publicPost.Body.String())
 	}
 	if strings.Contains(publicPost.Body.String(), "/static/style.css") {
 		t.Errorf("public post should not receive core styles")
@@ -1457,7 +1463,7 @@ func TestPluginAdministrationActivationAndContentFilter(t *testing.T) {
 	handler.ServeHTTP(home, httptest.NewRequest(http.MethodGet, "/", nil))
 	if home.Code != http.StatusOK || !strings.Contains(home.Body.String(), "Plugin marker") ||
 		!strings.Contains(home.Body.String(), `<meta name="description" content="safe">`) ||
-		strings.Contains(home.Body.String(), "<script") {
+		strings.Contains(home.Body.String(), "<script>alert") {
 		t.Errorf("active content filter result = %d %s", home.Code, home.Body.String())
 	}
 	pluginPage = getWithCookies(handler, "/admin/plugins", sessionCookie)
@@ -1745,4 +1751,138 @@ func postMultipartForm(t *testing.T, handler http.Handler, path, csrfToken, file
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	return response
+}
+
+func TestCoreSEOPublicRenderingAndSettings(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	admin, err := auth.CreateInitialAdmin(ctx, db, "seo_admin", "a-very-secure-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, expiresAt, err := auth.CreateSession(ctx, db, admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionCookie := &http.Cookie{Name: sessionCookieName, Value: token, Path: "/", Expires: expiresAt}
+
+	uploadDir := t.TempDir()
+	themeDir := t.TempDir()
+	pluginDir := t.TempDir()
+	handler, err := NewHandler(db, Options{UploadDir: uploadDir, ThemeDir: themeDir, PluginDir: pluginDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Create a post with full SEO metadata
+	editForm := getWithCookies(handler, "/admin/posts/new", sessionCookie)
+	csrfCookie := cookieNamed(t, editForm, csrfCookieName)
+	saveResp := postForm(handler, "/admin/posts/save", url.Values{
+		"csrf_token":      {csrfFromBody(t, editForm.Body.String())},
+		"title":           {"Post com SEO"},
+		"content":         {"Conteúdo do post com SEO"},
+		"status":          {"published"},
+		"seo_title":       {"Título SEO Customizado"},
+		"seo_description": {"Descrição SEO Customizada para buscadores"},
+		"canonical_url":   {"https://origem.com/canonical-post"},
+		"og_title":        {"Título para Redes Sociais"},
+		"og_description":  {"Descrição para Redes Sociais"},
+		"og_image":        {"https://origem.com/og-image.jpg"},
+		"twitter_card":    {"summary_large_image"},
+		"schema_type":     {"Article"},
+		"noindex":         {"1"},
+	}, sessionCookie, csrfCookie)
+	if saveResp.Code != http.StatusSeeOther {
+		t.Fatalf("save post with SEO = %d, %s", saveResp.Code, saveResp.Body.String())
+	}
+
+	// 2. Fetch the public post and verify all SEO tags
+	publicPost := httptest.NewRecorder()
+	handler.ServeHTTP(publicPost, httptest.NewRequest(http.MethodGet, "/post-com-seo", nil))
+	if publicPost.Code != http.StatusOK {
+		t.Fatalf("public post code = %d, want 200", publicPost.Code)
+	}
+	body := publicPost.Body.String()
+
+	// Check Title and Meta Description
+	if !strings.Contains(body, "<title>Título SEO Customizado</title>") {
+		t.Errorf("missing custom SEO title in public HTML: %s", body)
+	}
+	if !strings.Contains(body, `<meta name="description" content="Descrição SEO Customizada para buscadores">`) {
+		t.Errorf("missing custom SEO description in public HTML: %s", body)
+	}
+
+	// Check Canonical & Robots
+	if !strings.Contains(body, `<link rel="canonical" href="https://origem.com/canonical-post">`) {
+		t.Errorf("missing canonical link in public HTML: %s", body)
+	}
+	if !strings.Contains(body, `<meta name="robots" content="noindex, nofollow">`) {
+		t.Errorf("missing noindex robots tag in public HTML: %s", body)
+	}
+
+	// Check Open Graph
+	if !strings.Contains(body, `<meta property="og:title" content="Título para Redes Sociais">`) {
+		t.Errorf("missing og:title in public HTML: %s", body)
+	}
+	if !strings.Contains(body, `<meta property="og:description" content="Descrição para Redes Sociais">`) {
+		t.Errorf("missing og:description in public HTML: %s", body)
+	}
+	if !strings.Contains(body, `<meta property="og:image" content="https://origem.com/og-image.jpg">`) {
+		t.Errorf("missing og:image in public HTML: %s", body)
+	}
+
+	// Check Twitter Card
+	if !strings.Contains(body, `<meta name="twitter:card" content="summary_large_image">`) {
+		t.Errorf("missing twitter:card in public HTML: %s", body)
+	}
+
+	// Check JSON-LD
+	if !strings.Contains(body, `<script type="application/ld+json">`) {
+		t.Errorf("missing JSON-LD script in public HTML: %s", body)
+	}
+	if !strings.Contains(body, `"@type":"Article"`) {
+		t.Errorf("missing Article schema in public HTML: %s", body)
+	}
+	if !strings.Contains(body, `"@type":"BreadcrumbList"`) {
+		t.Errorf("missing BreadcrumbList schema in public HTML: %s", body)
+	}
+
+	// 3. Update global SEO settings
+	settingsPage := getWithCookies(handler, "/admin/settings", sessionCookie)
+	settingsCSRF := cookieNamed(t, settingsPage, csrfCookieName)
+	saveSettingsResp := postForm(handler, "/admin/settings/save", url.Values{
+		"csrf_token":              {csrfFromBody(t, settingsPage.Body.String())},
+		"site_title":              {"Meu Site com SEO"},
+		"site_tagline":            {"Tagline do site"},
+		"show_on_front":           {"posts"},
+		"home_intro_title":        {"Intro"},
+		"home_posts_title":        {"Posts"},
+		"site_url":                {"https://meusite.com.br"},
+		"seo_default_description": {"Descrição fallback do site"},
+		"seo_twitter_handle":      {"@site_oficial"},
+		"seo_robots_indexing":     {"index"},
+	}, sessionCookie, settingsCSRF)
+	if saveSettingsResp.Code != http.StatusSeeOther {
+		t.Fatalf("save SEO settings code = %d", saveSettingsResp.Code)
+	}
+
+	// 4. Verify home page has updated global SEO tags
+	homeRec := httptest.NewRecorder()
+	handler.ServeHTTP(homeRec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if homeRec.Code != http.StatusOK {
+		t.Fatalf("home code = %d", homeRec.Code)
+	}
+	homeBody := homeRec.Body.String()
+	if !strings.Contains(homeBody, `<link rel="canonical" href="https://meusite.com.br/">`) {
+		t.Errorf("home missing site_url canonical: %s", homeBody)
+	}
+	if !strings.Contains(homeBody, `<meta name="twitter:site" content="@site_oficial">`) {
+		t.Errorf("home missing twitter:site: %s", homeBody)
+	}
+	if !strings.Contains(homeBody, `<meta name="description" content="Descrição fallback do site">`) {
+		t.Errorf("home missing seo_default_description: %s", homeBody)
+	}
+	if !strings.Contains(homeBody, `"@type":"WebSite"`) {
+		t.Errorf("home missing WebSite JSON-LD: %s", homeBody)
+	}
 }

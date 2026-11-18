@@ -132,12 +132,17 @@ func (h *handler) saveSiteSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	settings := siteconfig.Settings{
-		Title:          r.FormValue("site_title"),
-		Tagline:        r.FormValue("site_tagline"),
-		Logo:           r.FormValue("site_logo"),
-		ShowOnFront:    r.FormValue("show_on_front"),
-		HomeIntroTitle: r.FormValue("home_intro_title"),
-		HomePostsTitle: r.FormValue("home_posts_title"),
+		Title:                 r.FormValue("site_title"),
+		Tagline:               r.FormValue("site_tagline"),
+		Logo:                  r.FormValue("site_logo"),
+		ShowOnFront:           r.FormValue("show_on_front"),
+		HomeIntroTitle:        r.FormValue("home_intro_title"),
+		HomePostsTitle:        r.FormValue("home_posts_title"),
+		SiteURL:               r.FormValue("site_url"),
+		SEODefaultDescription: r.FormValue("seo_default_description"),
+		SEODefaultOGImage:     r.FormValue("seo_default_og_image"),
+		SEOTwitterHandle:      r.FormValue("seo_twitter_handle"),
+		SEORobotsIndexing:     r.FormValue("seo_robots_indexing"),
 	}
 	if settings.ShowOnFront == siteconfig.FrontPage {
 		pageID, err := strconv.ParseInt(r.FormValue("page_on_front"), 10, 64)
@@ -156,6 +161,18 @@ func (h *handler) saveSiteSettings(w http.ResponseWriter, r *http.Request) {
 			if err != nil && !errors.Is(err, media.ErrNotFound) {
 				log.Printf("validate site logo: %v", err)
 				http.Error(w, "failed to validate site logo", http.StatusInternalServerError)
+				return
+			}
+			http.Redirect(w, r, "/admin/settings?error=invalid", http.StatusSeeOther)
+			return
+		}
+	}
+	if settings.SEODefaultOGImage != "" {
+		ogImg, err := h.media.FindByPath(r.Context(), settings.SEODefaultOGImage)
+		if err != nil || !strings.HasPrefix(strings.ToLower(ogImg.FileType), "image/") {
+			if err != nil && !errors.Is(err, media.ErrNotFound) {
+				log.Printf("validate default og image: %v", err)
+				http.Error(w, "failed to validate default og image", http.StatusInternalServerError)
 				return
 			}
 			http.Redirect(w, r, "/admin/settings?error=invalid", http.StatusSeeOther)

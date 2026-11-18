@@ -48,6 +48,15 @@ type Item struct {
 	Content       string
 	Status        string
 	FeaturedImage string
+	SEOTitle      string
+	SEODescription string
+	CanonicalURL  string
+	OGTitle       string
+	OGDescription string
+	OGImage       string
+	TwitterCard   string
+	SchemaType    string
+	Noindex       bool
 	CreatedAt     string
 	UpdatedAt     string
 	PublishedAt   string
@@ -72,6 +81,15 @@ type Input struct {
 	Content             string
 	Status              string
 	FeaturedImage       string
+	SEOTitle            string
+	SEODescription      string
+	CanonicalURL        string
+	OGTitle             string
+	OGDescription       string
+	OGImage             string
+	TwitterCard         string
+	SchemaType          string
+	Noindex             bool
 	CategoryIDs         []int64
 	NewCategory         string
 	NewCategoryParentID int64
@@ -95,6 +113,8 @@ func list(ctx context.Context, db *sql.DB, contentType string, trashed bool, aut
 	}
 	query := `
 		SELECT id, content_type, title, slug, content, status, featured_image,
+		       seo_title, seo_description, canonical_url, og_title, og_description,
+		       og_image, twitter_card, schema_type, noindex,
 		       created_at, updated_at, COALESCE(published_at, '')
 		FROM posts
 		WHERE content_type = ? AND `
@@ -122,12 +142,17 @@ func list(ctx context.Context, db *sql.DB, contentType string, trashed bool, aut
 	var items []Item
 	for rows.Next() {
 		var item Item
+		var noindexInt int
 		if err := rows.Scan(
 			&item.ID, &item.Type, &item.Title, &item.Slug, &item.Content, &item.Status,
-			&item.FeaturedImage, &item.CreatedAt, &item.UpdatedAt, &item.PublishedAt,
+			&item.FeaturedImage, &item.SEOTitle, &item.SEODescription, &item.CanonicalURL,
+			&item.OGTitle, &item.OGDescription, &item.OGImage, &item.TwitterCard,
+			&item.SchemaType, &noindexInt,
+			&item.CreatedAt, &item.UpdatedAt, &item.PublishedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan content: %w", err)
 		}
+		item.Noindex = noindexInt == 1
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -162,14 +187,20 @@ func Get(ctx context.Context, db *sql.DB, id int64, contentType string) (Item, e
 		return Item{}, ErrNotFound
 	}
 	var item Item
+	var noindexInt int
 	err := db.QueryRowContext(ctx, `
 		SELECT id, content_type, title, slug, content, status, featured_image,
+		       seo_title, seo_description, canonical_url, og_title, og_description,
+		       og_image, twitter_card, schema_type, noindex,
 		       created_at, updated_at, COALESCE(published_at, '')
 		FROM posts
 		WHERE id = ? AND content_type = ? AND deleted_at IS NULL
 	`, id, contentType).Scan(
 		&item.ID, &item.Type, &item.Title, &item.Slug, &item.Content, &item.Status,
-		&item.FeaturedImage, &item.CreatedAt, &item.UpdatedAt, &item.PublishedAt,
+		&item.FeaturedImage, &item.SEOTitle, &item.SEODescription, &item.CanonicalURL,
+		&item.OGTitle, &item.OGDescription, &item.OGImage, &item.TwitterCard,
+		&item.SchemaType, &noindexInt,
+		&item.CreatedAt, &item.UpdatedAt, &item.PublishedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Item{}, ErrNotFound
@@ -177,6 +208,7 @@ func Get(ctx context.Context, db *sql.DB, id int64, contentType string) (Item, e
 	if err != nil {
 		return Item{}, fmt.Errorf("load content: %w", err)
 	}
+	item.Noindex = noindexInt == 1
 	item.Categories, err = itemCategories(ctx, db, id)
 	if err != nil {
 		return Item{}, err
@@ -193,9 +225,13 @@ func PublishedPageByID(ctx context.Context, db *sql.DB, id int64) (Item, error) 
 		return Item{}, ErrNotFound
 	}
 	var item Item
+	var noindexInt int
 	err := db.QueryRowContext(ctx, `
 		SELECT posts.id, posts.content_type, posts.title, posts.slug, posts.content, posts.status,
-		       posts.featured_image, posts.created_at, posts.updated_at,
+		       posts.featured_image, posts.seo_title, posts.seo_description, posts.canonical_url,
+		       posts.og_title, posts.og_description, posts.og_image, posts.twitter_card,
+		       posts.schema_type, posts.noindex,
+		       posts.created_at, posts.updated_at,
 		       COALESCE(posts.published_at, ''), COALESCE(users.username, '')
 		FROM posts
 		LEFT JOIN users ON users.id = posts.author_id
@@ -203,7 +239,10 @@ func PublishedPageByID(ctx context.Context, db *sql.DB, id int64) (Item, error) 
 		      AND posts.deleted_at IS NULL
 	`, id).Scan(
 		&item.ID, &item.Type, &item.Title, &item.Slug, &item.Content, &item.Status,
-		&item.FeaturedImage, &item.CreatedAt, &item.UpdatedAt, &item.PublishedAt, &item.Author,
+		&item.FeaturedImage, &item.SEOTitle, &item.SEODescription, &item.CanonicalURL,
+		&item.OGTitle, &item.OGDescription, &item.OGImage, &item.TwitterCard,
+		&item.SchemaType, &noindexInt,
+		&item.CreatedAt, &item.UpdatedAt, &item.PublishedAt, &item.Author,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Item{}, ErrNotFound
@@ -211,13 +250,17 @@ func PublishedPageByID(ctx context.Context, db *sql.DB, id int64) (Item, error) 
 	if err != nil {
 		return Item{}, fmt.Errorf("load published front page: %w", err)
 	}
+	item.Noindex = noindexInt == 1
 	return item, nil
 }
 
 func PublishedPages(ctx context.Context, db *sql.DB) ([]Item, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT posts.id, posts.content_type, posts.title, posts.slug, posts.content, posts.status,
-		       posts.featured_image, posts.created_at, posts.updated_at,
+		       posts.featured_image, posts.seo_title, posts.seo_description, posts.canonical_url,
+		       posts.og_title, posts.og_description, posts.og_image, posts.twitter_card,
+		       posts.schema_type, posts.noindex,
+		       posts.created_at, posts.updated_at,
 		       COALESCE(posts.published_at, ''), COALESCE(users.username, '')
 		FROM posts
 		LEFT JOIN users ON users.id = posts.author_id
@@ -231,12 +274,17 @@ func PublishedPages(ctx context.Context, db *sql.DB) ([]Item, error) {
 	var pages []Item
 	for rows.Next() {
 		var item Item
+		var noindexInt int
 		if err := rows.Scan(
 			&item.ID, &item.Type, &item.Title, &item.Slug, &item.Content, &item.Status,
-			&item.FeaturedImage, &item.CreatedAt, &item.UpdatedAt, &item.PublishedAt, &item.Author,
+			&item.FeaturedImage, &item.SEOTitle, &item.SEODescription, &item.CanonicalURL,
+			&item.OGTitle, &item.OGDescription, &item.OGImage, &item.TwitterCard,
+			&item.SchemaType, &noindexInt,
+			&item.CreatedAt, &item.UpdatedAt, &item.PublishedAt, &item.Author,
 		); err != nil {
 			return nil, fmt.Errorf("scan published page: %w", err)
 		}
+		item.Noindex = noindexInt == 1
 		pages = append(pages, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -253,6 +301,17 @@ func Save(ctx context.Context, db *sql.DB, input Input, authorID int64) (Item, e
 	}
 	input.Content = htmlPolicy.Sanitize(input.Content)
 	input.FeaturedImage = strings.TrimSpace(input.FeaturedImage)
+	input.SEOTitle = strings.TrimSpace(input.SEOTitle)
+	input.SEODescription = strings.TrimSpace(input.SEODescription)
+	input.CanonicalURL = strings.TrimSpace(input.CanonicalURL)
+	input.OGTitle = strings.TrimSpace(input.OGTitle)
+	input.OGDescription = strings.TrimSpace(input.OGDescription)
+	input.OGImage = strings.TrimSpace(input.OGImage)
+	input.TwitterCard = strings.TrimSpace(input.TwitterCard)
+	if input.TwitterCard == "" {
+		input.TwitterCard = "summary_large_image"
+	}
+	input.SchemaType = strings.TrimSpace(input.SchemaType)
 	input.NewCategory = strings.TrimSpace(input.NewCategory)
 	input.Tags = strings.TrimSpace(input.Tags)
 	input.Type = strings.TrimSpace(input.Type)
@@ -260,11 +319,24 @@ func Save(ctx context.Context, db *sql.DB, input Input, authorID int64) (Item, e
 
 	if authorID <= 0 || input.ID < 0 || !validType(input.Type) || input.Title == "" || utf8.RuneCountInString(input.Title) > maxTitleSize ||
 		len(input.Content) > maxContentSize || len(input.FeaturedImage) > maxImageSize ||
+		utf8.RuneCountInString(input.SEOTitle) > 200 || utf8.RuneCountInString(input.SEODescription) > 500 ||
+		len(input.CanonicalURL) > 2048 || utf8.RuneCountInString(input.OGTitle) > 200 ||
+		utf8.RuneCountInString(input.OGDescription) > 500 || len(input.OGImage) > maxImageSize ||
+		utf8.RuneCountInString(input.TwitterCard) > 50 || utf8.RuneCountInString(input.SchemaType) > 50 ||
 		(input.Status != StatusDraft && input.Status != StatusPublished) {
 		return Item{}, ErrInvalidInput
 	}
 	if !validFeaturedImage(input.FeaturedImage) {
 		return Item{}, fmt.Errorf("%w: image URL must be a relative /uploads path or an HTTP(S) URL", ErrInvalidInput)
+	}
+	if !validFeaturedImage(input.OGImage) {
+		return Item{}, fmt.Errorf("%w: og image URL must be a relative /uploads path or an HTTP(S) URL", ErrInvalidInput)
+	}
+	if input.CanonicalURL != "" {
+		parsed, err := url.ParseRequestURI(input.CanonicalURL)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https" && !strings.HasPrefix(input.CanonicalURL, "/")) {
+			return Item{}, fmt.Errorf("%w: canonical URL must be a valid URL", ErrInvalidInput)
+		}
 	}
 	slug := Slugify(input.Slug)
 	if input.Slug == "" {
@@ -289,6 +361,16 @@ func Save(ctx context.Context, db *sql.DB, input Input, authorID int64) (Item, e
 		}
 		if err != nil {
 			return Item{}, fmt.Errorf("validate featured image: %w", err)
+		}
+	}
+	if strings.HasPrefix(input.OGImage, "/uploads/") {
+		var fileType string
+		err := tx.QueryRowContext(ctx, "SELECT file_type FROM media WHERE filepath = ?", input.OGImage).Scan(&fileType)
+		if errors.Is(err, sql.ErrNoRows) || (err == nil && !strings.HasPrefix(strings.ToLower(fileType), "image/")) {
+			return Item{}, fmt.Errorf("%w: og image must reference an indexed image", ErrInvalidInput)
+		}
+		if err != nil {
+			return Item{}, fmt.Errorf("validate og image: %w", err)
 		}
 	}
 
@@ -323,13 +405,21 @@ func Save(ctx context.Context, db *sql.DB, input Input, authorID int64) (Item, e
 		}
 	}
 
+	noindexInt := 0
+	if input.Noindex {
+		noindexInt = 1
+	}
+
 	var id int64
 	if input.ID == 0 {
 		result, err := tx.ExecContext(ctx, `
 			INSERT INTO posts (author_id, title, slug, content, status, created_at, updated_at, published_at,
-			                   content_type, featured_image)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, authorID, input.Title, slug, input.Content, input.Status, now, now, publishedAt, input.Type, input.FeaturedImage)
+			                   content_type, featured_image, seo_title, seo_description, canonical_url,
+			                   og_title, og_description, og_image, twitter_card, schema_type, noindex)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, authorID, input.Title, slug, input.Content, input.Status, now, now, publishedAt, input.Type,
+			input.FeaturedImage, input.SEOTitle, input.SEODescription, input.CanonicalURL,
+			input.OGTitle, input.OGDescription, input.OGImage, input.TwitterCard, input.SchemaType, noindexInt)
 		if err != nil {
 			return Item{}, translateContentError(err)
 		}
@@ -341,9 +431,15 @@ func Save(ctx context.Context, db *sql.DB, input Input, authorID int64) (Item, e
 		id = input.ID
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE posts
-			SET title = ?, slug = ?, content = ?, status = ?, updated_at = ?, published_at = ?, featured_image = ?
+			SET title = ?, slug = ?, content = ?, status = ?, updated_at = ?, published_at = ?,
+			    featured_image = ?, seo_title = ?, seo_description = ?, canonical_url = ?,
+			    og_title = ?, og_description = ?, og_image = ?, twitter_card = ?, schema_type = ?,
+			    noindex = ?
 			WHERE id = ? AND content_type = ?
-		`, input.Title, slug, input.Content, input.Status, now, publishedAt, input.FeaturedImage, id, input.Type); err != nil {
+		`, input.Title, slug, input.Content, input.Status, now, publishedAt,
+			input.FeaturedImage, input.SEOTitle, input.SEODescription, input.CanonicalURL,
+			input.OGTitle, input.OGDescription, input.OGImage, input.TwitterCard, input.SchemaType,
+			noindexInt, id, input.Type); err != nil {
 			return Item{}, translateContentError(err)
 		}
 	}
@@ -399,16 +495,23 @@ func PublishedBySlug(ctx context.Context, db *sql.DB, slug string) (Item, error)
 		return Item{}, ErrNotFound
 	}
 	var item Item
+	var noindexInt int
 	err := db.QueryRowContext(ctx, `
 		SELECT posts.id, posts.content_type, posts.title, posts.slug, posts.content, posts.status,
-		       posts.featured_image, posts.created_at, posts.updated_at,
+		       posts.featured_image, posts.seo_title, posts.seo_description, posts.canonical_url,
+		       posts.og_title, posts.og_description, posts.og_image, posts.twitter_card,
+		       posts.schema_type, posts.noindex,
+		       posts.created_at, posts.updated_at,
 		       COALESCE(posts.published_at, ''), COALESCE(users.username, '')
 		FROM posts
 		LEFT JOIN users ON users.id = posts.author_id
 		WHERE slug = ? AND status = 'published' AND deleted_at IS NULL
 	`, slug).Scan(
 		&item.ID, &item.Type, &item.Title, &item.Slug, &item.Content, &item.Status,
-		&item.FeaturedImage, &item.CreatedAt, &item.UpdatedAt, &item.PublishedAt, &item.Author,
+		&item.FeaturedImage, &item.SEOTitle, &item.SEODescription, &item.CanonicalURL,
+		&item.OGTitle, &item.OGDescription, &item.OGImage, &item.TwitterCard,
+		&item.SchemaType, &noindexInt,
+		&item.CreatedAt, &item.UpdatedAt, &item.PublishedAt, &item.Author,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Item{}, ErrNotFound
@@ -416,6 +519,7 @@ func PublishedBySlug(ctx context.Context, db *sql.DB, slug string) (Item, error)
 	if err != nil {
 		return Item{}, fmt.Errorf("load public content: %w", err)
 	}
+	item.Noindex = noindexInt == 1
 	item.Categories, err = itemCategories(ctx, db, item.ID)
 	if err != nil {
 		return Item{}, err
@@ -433,7 +537,10 @@ func Published(ctx context.Context, db *sql.DB, limit int) ([]Item, error) {
 	}
 	rows, err := db.QueryContext(ctx, `
 		SELECT posts.id, posts.content_type, posts.title, posts.slug, posts.content, posts.status,
-		       posts.featured_image, posts.created_at, posts.updated_at,
+		       posts.featured_image, posts.seo_title, posts.seo_description, posts.canonical_url,
+		       posts.og_title, posts.og_description, posts.og_image, posts.twitter_card,
+		       posts.schema_type, posts.noindex,
+		       posts.created_at, posts.updated_at,
 		       COALESCE(posts.published_at, ''), COALESCE(users.username, '')
 		FROM posts
 		LEFT JOIN users ON users.id = posts.author_id
@@ -449,12 +556,17 @@ func Published(ctx context.Context, db *sql.DB, limit int) ([]Item, error) {
 	var items []Item
 	for rows.Next() {
 		var item Item
+		var noindexInt int
 		if err := rows.Scan(
 			&item.ID, &item.Type, &item.Title, &item.Slug, &item.Content, &item.Status,
-			&item.FeaturedImage, &item.CreatedAt, &item.UpdatedAt, &item.PublishedAt, &item.Author,
+			&item.FeaturedImage, &item.SEOTitle, &item.SEODescription, &item.CanonicalURL,
+			&item.OGTitle, &item.OGDescription, &item.OGImage, &item.TwitterCard,
+			&item.SchemaType, &noindexInt,
+			&item.CreatedAt, &item.UpdatedAt, &item.PublishedAt, &item.Author,
 		); err != nil {
 			return nil, fmt.Errorf("scan public content: %w", err)
 		}
+		item.Noindex = noindexInt == 1
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -490,7 +602,10 @@ func PublishedPage(ctx context.Context, db *sql.DB, page, limit int) ([]Item, in
 
 	rows, err := db.QueryContext(ctx, `
 		SELECT posts.id, posts.content_type, posts.title, posts.slug, posts.content, posts.status,
-		       posts.featured_image, posts.created_at, posts.updated_at,
+		       posts.featured_image, posts.seo_title, posts.seo_description, posts.canonical_url,
+		       posts.og_title, posts.og_description, posts.og_image, posts.twitter_card,
+		       posts.schema_type, posts.noindex,
+		       posts.created_at, posts.updated_at,
 		       COALESCE(posts.published_at, ''), COALESCE(users.username, '')
 		FROM posts
 		LEFT JOIN users ON users.id = posts.author_id
@@ -506,12 +621,17 @@ func PublishedPage(ctx context.Context, db *sql.DB, page, limit int) ([]Item, in
 	var items []Item
 	for rows.Next() {
 		var item Item
+		var noindexInt int
 		if err := rows.Scan(
 			&item.ID, &item.Type, &item.Title, &item.Slug, &item.Content, &item.Status,
-			&item.FeaturedImage, &item.CreatedAt, &item.UpdatedAt, &item.PublishedAt, &item.Author,
+			&item.FeaturedImage, &item.SEOTitle, &item.SEODescription, &item.CanonicalURL,
+			&item.OGTitle, &item.OGDescription, &item.OGImage, &item.TwitterCard,
+			&item.SchemaType, &noindexInt,
+			&item.CreatedAt, &item.UpdatedAt, &item.PublishedAt, &item.Author,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan public post: %w", err)
 		}
+		item.Noindex = noindexInt == 1
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {

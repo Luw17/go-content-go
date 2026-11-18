@@ -214,3 +214,75 @@ func TestSaveRejectsInvalidInputs(t *testing.T) {
 		}
 	}
 }
+
+func TestContentSEOFields(t *testing.T) {
+	ctx := context.Background()
+	db, err := database.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := database.Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO users (username, password_hash, role, created_at, updated_at)
+		VALUES ('author', 'hash', 'admin', 'now', 'now')
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO media (filename, filepath, file_type, file_size, uploaded_at)
+		VALUES ('cover.png', '/uploads/cover.png', 'image/png', 100, 'now')
+	`); err != nil {
+		t.Fatal(err)
+	}
+
+	input := Input{
+		Type:           TypePost,
+		Title:          "Meu Artigo Especial",
+		Content:        "Texto do artigo",
+		Status:         StatusPublished,
+		SEOTitle:       "Título Otimizado para o Google",
+		SEODescription: "Meta descrição super detalhada e atrativa.",
+		CanonicalURL:   "https://externo.com/artigo-original",
+		OGTitle:        "Título para Redes Sociais",
+		OGDescription:  "Descrição para o Facebook e Twitter.",
+		OGImage:        "/uploads/cover.png",
+		TwitterCard:    "summary_large_image",
+		SchemaType:     "Article",
+		Noindex:        true,
+	}
+	saved, err := Save(ctx, db, input, 1)
+	if err != nil {
+		t.Fatalf("Save() failed: %v", err)
+	}
+	if saved.SEOTitle != input.SEOTitle ||
+		saved.SEODescription != input.SEODescription ||
+		saved.CanonicalURL != input.CanonicalURL ||
+		saved.OGTitle != input.OGTitle ||
+		saved.OGDescription != input.OGDescription ||
+		saved.OGImage != input.OGImage ||
+		saved.TwitterCard != input.TwitterCard ||
+		saved.SchemaType != input.SchemaType ||
+		!saved.Noindex {
+		t.Fatalf("saved item SEO fields = %+v, want %+v", saved, input)
+	}
+
+	loaded, err := Get(ctx, db, saved.ID, TypePost)
+	if err != nil {
+		t.Fatalf("Get() failed: %v", err)
+	}
+	if loaded.SEOTitle != input.SEOTitle || !loaded.Noindex || loaded.OGImage != input.OGImage {
+		t.Fatalf("loaded item SEO fields = %+v, want %+v", loaded, input)
+	}
+
+	pub, err := PublishedBySlug(ctx, db, saved.Slug)
+	if err != nil {
+		t.Fatalf("PublishedBySlug() failed: %v", err)
+	}
+	if pub.SEOTitle != input.SEOTitle || !pub.Noindex || pub.SchemaType != "Article" {
+		t.Fatalf("published item SEO fields = %+v, want %+v", pub, input)
+	}
+}
+

@@ -17,6 +17,7 @@ import (
 	"github.com/Luw17/go-content-go/internal/media"
 	"github.com/Luw17/go-content-go/internal/navigation"
 	"github.com/Luw17/go-content-go/internal/plugins"
+	"github.com/Luw17/go-content-go/internal/seo"
 	"github.com/Luw17/go-content-go/internal/siteconfig"
 	themeengine "github.com/Luw17/go-content-go/themes"
 )
@@ -281,6 +282,15 @@ func (h *handler) saveContent(w http.ResponseWriter, r *http.Request, contentTyp
 		Content:             r.FormValue("content"),
 		Status:              status,
 		FeaturedImage:       r.FormValue("featured_image"),
+		SEOTitle:            r.FormValue("seo_title"),
+		SEODescription:      r.FormValue("seo_description"),
+		CanonicalURL:        r.FormValue("canonical_url"),
+		OGTitle:             r.FormValue("og_title"),
+		OGDescription:       r.FormValue("og_description"),
+		OGImage:             r.FormValue("og_image"),
+		TwitterCard:         r.FormValue("twitter_card"),
+		SchemaType:          r.FormValue("schema_type"),
+		Noindex:             r.FormValue("noindex") == "1" || r.FormValue("noindex") == "true",
 		CategoryIDs:         categoryIDs,
 		NewCategory:         r.FormValue("new_category"),
 		NewCategoryParentID: parentID,
@@ -295,6 +305,18 @@ func (h *handler) saveContent(w http.ResponseWriter, r *http.Request, contentTyp
 				return
 			}
 			h.renderValidationError(w, r, input, "Selecione uma imagem existente na biblioteca de mídias.")
+			return
+		}
+	}
+	if strings.HasPrefix(input.OGImage, "/uploads/") {
+		image, err := h.media.FindByPath(r.Context(), input.OGImage)
+		if err != nil || !strings.HasPrefix(strings.ToLower(image.FileType), "image/") {
+			if err != nil && !errors.Is(err, media.ErrNotFound) {
+				log.Printf("validate og image: %v", err)
+				http.Error(w, "failed to validate og image", http.StatusInternalServerError)
+				return
+			}
+			h.renderValidationError(w, r, input, "Selecione uma imagem social existente na biblioteca de mídias.")
 			return
 		}
 	}
@@ -334,6 +356,9 @@ func contentHookPayload(input content.Input, authorID int64) map[string]any {
 	return map[string]any{
 		"id": input.ID, "author_id": authorID, "title": input.Title, "slug": input.Slug,
 		"content": input.Content, "status": input.Status, "featured_image": input.FeaturedImage,
+		"seo_title": input.SEOTitle, "seo_description": input.SEODescription, "canonical_url": input.CanonicalURL,
+		"og_title": input.OGTitle, "og_description": input.OGDescription, "og_image": input.OGImage,
+		"twitter_card": input.TwitterCard, "schema_type": input.SchemaType, "noindex": input.Noindex,
 		"type": input.Type, "category_ids": input.CategoryIDs, "tags": input.Tags,
 	}
 }
@@ -359,7 +384,7 @@ func (h *handler) renderValidationError(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	var mediaItems []media.Item
-	if input.FeaturedImage != "" {
+	if input.FeaturedImage != "" || input.OGImage != "" {
 		mediaItems, err = h.media.List(r.Context())
 		if err != nil {
 			log.Printf("load media after invalid content: %v", err)
@@ -377,13 +402,22 @@ func (h *handler) renderValidationError(w http.ResponseWriter, r *http.Request, 
 		label = "Página"
 	}
 	item := content.Item{
-		ID:            input.ID,
-		Type:          input.Type,
-		Title:         input.Title,
-		Slug:          input.Slug,
-		Content:       input.Content,
-		Status:        input.Status,
-		FeaturedImage: input.FeaturedImage,
+		ID:             input.ID,
+		Type:           input.Type,
+		Title:          input.Title,
+		Slug:           input.Slug,
+		Content:        input.Content,
+		Status:         input.Status,
+		FeaturedImage:  input.FeaturedImage,
+		SEOTitle:       input.SEOTitle,
+		SEODescription: input.SEODescription,
+		CanonicalURL:   input.CanonicalURL,
+		OGTitle:        input.OGTitle,
+		OGDescription:  input.OGDescription,
+		OGImage:        input.OGImage,
+		TwitterCard:    input.TwitterCard,
+		SchemaType:     input.SchemaType,
+		Noindex:        input.Noindex,
 	}
 	selected := make(map[int64]bool)
 	for _, id := range input.CategoryIDs {
@@ -655,7 +689,12 @@ func (h *handler) publicHome(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			public := newPublicItem(frontPage, rendered)
-			h.renderTheme(w, r, "page.html", http.StatusOK, func(themeName string, headTags template.HTML, site siteconfig.Settings) any {
+			seoParams := seo.Params{
+				Type:            seo.TypePage,
+				Item:            &frontPage,
+				FallbackSummary: public.Summary,
+			}
+			h.renderTheme(w, r, "page.html", http.StatusOK, seoParams, func(themeName string, headTags template.HTML, site siteconfig.Settings) any {
 				return publicContentData{Theme: themeName, Site: site, Item: public, HeadTags: headTags}
 			})
 			return
@@ -687,7 +726,10 @@ func (h *handler) publicHome(w http.ResponseWriter, r *http.Request) {
 		}
 		posts = append(posts, newPublicItem(item, rendered))
 	}
-	h.renderTheme(w, r, "index.html", http.StatusOK, func(themeName string, headTags template.HTML, site siteconfig.Settings) any {
+	seoParams := seo.Params{
+		Type: seo.TypeHome,
+	}
+	h.renderTheme(w, r, "index.html", http.StatusOK, seoParams, func(themeName string, headTags template.HTML, site siteconfig.Settings) any {
 		return publicHomeData{Theme: themeName, Site: site, Posts: posts, HeadTags: headTags}
 	})
 }
@@ -716,11 +758,18 @@ func (h *handler) publicContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	templateName := "page.html"
+	pageType := seo.TypePage
 	if item.Type == content.TypePost {
 		templateName = "single.html"
+		pageType = seo.TypePost
 	}
 	public := newPublicItem(item, rendered)
-	h.renderTheme(w, r, templateName, http.StatusOK, func(themeName string, headTags template.HTML, site siteconfig.Settings) any {
+	seoParams := seo.Params{
+		Type:            pageType,
+		Item:            &item,
+		FallbackSummary: public.Summary,
+	}
+	h.renderTheme(w, r, templateName, http.StatusOK, seoParams, func(themeName string, headTags template.HTML, site siteconfig.Settings) any {
 		return publicContentData{Theme: themeName, Site: site, Item: public, HeadTags: headTags}
 	})
 }
@@ -770,7 +819,10 @@ func (h *handler) renderFragmentStatus(w http.ResponseWriter, name string, page 
 }
 
 func (h *handler) publicNotFound(w http.ResponseWriter, r *http.Request) {
-	h.renderTheme(w, r, "404.html", http.StatusNotFound, func(themeName string, headTags template.HTML, site siteconfig.Settings) any {
+	seoParams := seo.Params{
+		Type: seo.Type404,
+	}
+	h.renderTheme(w, r, "404.html", http.StatusNotFound, seoParams, func(themeName string, headTags template.HTML, site siteconfig.Settings) any {
 		return publicNotFoundData{Theme: themeName, Site: site, HeadTags: headTags}
 	})
 }

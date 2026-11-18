@@ -92,6 +92,77 @@
                 <h2>Pré-visualização</h2>
                 <div id="markdown-preview" class="markdown-preview">{{.MarkdownPreview}}</div>
               </section>
+              <section class="editor-panel seo-panel">
+                <h2>SEO & Redes Sociais</h2>
+                <p class="muted">Personalize metatags, links canônicos, cartões sociais e dados estruturados.</p>
+
+                <div class="serp-preview">
+                  <p class="eyebrow">Pré-visualização no Google</p>
+                  <div class="serp-preview-box">
+                    <cite id="serp-url" class="serp-url">/{{.Item.Slug}}</cite>
+                    <h3 id="serp-title" class="serp-title">{{if .Item.SEOTitle}}{{.Item.SEOTitle}}{{else if .Item.Title}}{{.Item.Title}}{{else}}Título do conteúdo{{end}}</h3>
+                    <p id="serp-desc" class="serp-desc">{{if .Item.SEODescription}}{{.Item.SEODescription}}{{else}}Prévia da descrição deste conteúdo nos resultados de busca do Google…{{end}}</p>
+                  </div>
+                </div>
+
+                <div class="form-grid">
+                  <div>
+                    <label for="seo_title">Título SEO <span class="muted">(ideal: ~60 caracteres)</span></label>
+                    <input id="seo_title" name="seo_title" type="text" maxlength="200" value="{{.Item.SEOTitle}}" placeholder="Deixe em branco para usar o título acima">
+                  </div>
+                  <div>
+                    <label for="canonical_url">URL Canônica personalizada <span class="muted">(opcional)</span></label>
+                    <input id="canonical_url" name="canonical_url" type="text" maxlength="2048" value="{{.Item.CanonicalURL}}" placeholder="https://…">
+                  </div>
+                </div>
+
+                <label for="seo_description">Meta Descrição <span class="muted">(ideal: 120–160 caracteres)</span></label>
+                <textarea id="seo_description" name="seo_description" rows="3" maxlength="500" placeholder="Resumo atrativo para os mecanismos de busca">{{.Item.SEODescription}}</textarea>
+
+                <div class="form-grid">
+                  <div>
+                    <label for="og_title">Título para Redes Sociais (Open Graph)</label>
+                    <input id="og_title" name="og_title" type="text" maxlength="200" value="{{.Item.OGTitle}}" placeholder="Deixe em branco para usar o título SEO">
+                  </div>
+                  <div>
+                    <label for="og_description">Descrição para Redes Sociais</label>
+                    <input id="og_description" name="og_description" type="text" maxlength="500" value="{{.Item.OGDescription}}" placeholder="Deixe em branco para usar a meta descrição">
+                  </div>
+                </div>
+
+                <div class="form-grid">
+                  <div>
+                    <label for="og_image">Imagem de Compartilhamento (OG Image)</label>
+                    <input id="og_image" name="og_image" type="text" maxlength="2048" value="{{.Item.OGImage}}" placeholder="/uploads/… ou https://…">
+                  </div>
+                  <div>
+                    <label for="twitter_card">Cartão do Twitter / X</label>
+                    <select id="twitter_card" name="twitter_card">
+                      <option value="summary_large_image" {{if or (eq .Item.TwitterCard "summary_large_image") (eq .Item.TwitterCard "")}}selected{{end}}>Imagem Grande (summary_large_image)</option>
+                      <option value="summary" {{if eq .Item.TwitterCard "summary"}}selected{{end}}>Imagem Pequena (summary)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="form-grid">
+                  <div>
+                    <label for="schema_type">Dados Estruturados (Schema.org)</label>
+                    <select id="schema_type" name="schema_type">
+                      <option value="" {{if eq .Item.SchemaType ""}}selected{{end}}>Padrão ({{if eq .ContentType "post"}}BlogPosting{{else}}WebPage{{end}})</option>
+                      <option value="Article" {{if eq .Item.SchemaType "Article"}}selected{{end}}>Article</option>
+                      <option value="BlogPosting" {{if eq .Item.SchemaType "BlogPosting"}}selected{{end}}>BlogPosting</option>
+                      <option value="NewsArticle" {{if eq .Item.SchemaType "NewsArticle"}}selected{{end}}>NewsArticle</option>
+                      <option value="WebPage" {{if eq .Item.SchemaType "WebPage"}}selected{{end}}>WebPage</option>
+                    </select>
+                  </div>
+                  <div class="checkbox-container">
+                    <label class="checkbox-label" for="noindex">
+                      <input id="noindex" type="checkbox" name="noindex" value="1" {{if .Item.Noindex}}checked{{end}}>
+                      Bloquear mecanismos de busca (noindex, nofollow)
+                    </label>
+                  </div>
+                </div>
+              </section>
             </div>
             <aside class="editor-sidebar">
               <section class="editor-panel">
@@ -386,6 +457,11 @@
               <input type="hidden" name="page_on_front" value="{{.SiteSettings.PageOnFront}}">
               <input type="hidden" name="home_intro_title" value="{{.SiteSettings.HomeIntroTitle}}">
               <input type="hidden" name="home_posts_title" value="{{.SiteSettings.HomePostsTitle}}">
+              <input type="hidden" name="site_url" value="{{.SiteSettings.SiteURL}}">
+              <input type="hidden" name="seo_default_description" value="{{.SiteSettings.SEODefaultDescription}}">
+              <input type="hidden" name="seo_default_og_image" value="{{.SiteSettings.SEODefaultOGImage}}">
+              <input type="hidden" name="seo_twitter_handle" value="{{.SiteSettings.SEOTwitterHandle}}">
+              <input type="hidden" name="seo_robots_indexing" value="{{.SiteSettings.SEORobotsIndexing}}">
               <label for="site-title">Título do site</label>
               <input id="site-title" name="site_title" type="text" maxlength="120" value="{{.SiteSettings.Title}}" required>
               <label for="site-tagline">Descrição curta / slogan</label>
@@ -412,6 +488,11 @@
               <input type="hidden" name="site_title" value="{{.SiteSettings.Title}}">
               <input type="hidden" name="site_tagline" value="{{.SiteSettings.Tagline}}">
               <input type="hidden" name="site_logo" value="{{.SiteSettings.Logo}}">
+              <input type="hidden" name="site_url" value="{{.SiteSettings.SiteURL}}">
+              <input type="hidden" name="seo_default_description" value="{{.SiteSettings.SEODefaultDescription}}">
+              <input type="hidden" name="seo_default_og_image" value="{{.SiteSettings.SEODefaultOGImage}}">
+              <input type="hidden" name="seo_twitter_handle" value="{{.SiteSettings.SEOTwitterHandle}}">
+              <input type="hidden" name="seo_robots_indexing" value="{{.SiteSettings.SEORobotsIndexing}}">
               <label for="home-intro-title">Título de introdução</label>
               <input id="home-intro-title" name="home_intro_title" type="text" maxlength="120" value="{{.SiteSettings.HomeIntroTitle}}" required>
               <label for="home-posts-title">Título da seção de posts</label>
@@ -429,6 +510,50 @@
                 {{end}}
               </select>
               <button class="button button-primary" type="submit">Salvar leitura</button>
+            </form>
+          </section>
+          <section class="welcome-card settings-card">
+            <h2>SEO e Redes Sociais</h2>
+            <p>Configurações globais para indexação em buscadores e compartilhamento em redes sociais.</p>
+            <form class="editor-form" method="post" action="/admin/settings/save">
+              <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+              <input type="hidden" name="site_title" value="{{.SiteSettings.Title}}">
+              <input type="hidden" name="site_tagline" value="{{.SiteSettings.Tagline}}">
+              <input type="hidden" name="site_logo" value="{{.SiteSettings.Logo}}">
+              <input type="hidden" name="show_on_front" value="{{.SiteSettings.ShowOnFront}}">
+              <input type="hidden" name="page_on_front" value="{{.SiteSettings.PageOnFront}}">
+              <input type="hidden" name="home_intro_title" value="{{.SiteSettings.HomeIntroTitle}}">
+              <input type="hidden" name="home_posts_title" value="{{.SiteSettings.HomePostsTitle}}">
+
+              <label for="site-url">URL Canônica do Site</label>
+              <input id="site-url" name="site_url" type="url" maxlength="2000" value="{{.SiteSettings.SiteURL}}" placeholder="https://meusite.com">
+              <p class="muted">Usada para gerar links canônicos absolutos e tags Open Graph.</p>
+
+              <label for="seo-default-description">Meta Descrição Padrão (Fallback)</label>
+              <textarea id="seo-default-description" name="seo_default_description" rows="3" maxlength="500" placeholder="Descrição utilizada quando uma publicação não definir sua própria">{{.SiteSettings.SEODefaultDescription}}</textarea>
+
+              <label for="seo-default-og-image">Imagem Social Padrão (Open Graph)</label>
+              <select id="seo-default-og-image" name="seo_default_og_image">
+                <option value="">Sem imagem social padrão</option>
+                {{range .MediaItems}}
+                  {{if hasPrefix .FileType "image/"}}
+                    <option value="{{.Filepath}}" {{if eq $.SiteSettings.SEODefaultOGImage .Filepath}}selected{{end}}>{{.Filename}}</option>
+                  {{end}}
+                {{end}}
+              </select>
+              {{if .SiteSettings.SEODefaultOGImage}}<p class="muted">Imagem padrão atual: <a href="{{.SiteSettings.SEODefaultOGImage}}" target="_blank" rel="noreferrer">visualizar arquivo</a></p>{{end}}
+
+              <label for="seo-twitter-handle">Perfil do Twitter / X</label>
+              <input id="seo-twitter-handle" name="seo_twitter_handle" type="text" maxlength="100" value="{{.SiteSettings.SEOTwitterHandle}}" placeholder="@seuperfil">
+
+              <label for="seo-robots-indexing">Visibilidade para Mecanismos de Busca</label>
+              <select id="seo-robots-indexing" name="seo_robots_indexing">
+                <option value="index" {{if eq .SiteSettings.SEORobotsIndexing "index"}}selected{{end}}>Permitir que mecanismos de busca indexem este site (index, follow)</option>
+                <option value="noindex" {{if eq .SiteSettings.SEORobotsIndexing "noindex"}}selected{{end}}>Evitar que mecanismos de busca indexem este site (noindex, nofollow)</option>
+              </select>
+              <p class="muted">Aviso para que robôs de busca não indexem o conteúdo.</p>
+
+              <button class="button button-primary" type="submit">Salvar SEO</button>
             </form>
           </section>
           <section class="welcome-card settings-card">
