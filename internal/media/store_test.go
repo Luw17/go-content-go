@@ -27,11 +27,11 @@ func TestSaveUniqueFilesAndDelete(t *testing.T) {
 		t.Fatalf("uploads directory permissions = %04o, want 0755", info.Mode().Perm())
 	}
 	png := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}
-	first, err := store.Save(ctx, "same image.png", "Alt text", bytes.NewReader(png))
+	first, err := store.Save(ctx, "same image.png", "Alt text", "", 0, bytes.NewReader(png))
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := store.Save(ctx, "same image.png", "", bytes.NewReader(png))
+	second, err := store.Save(ctx, "same image.png", "", "", 0, bytes.NewReader(png))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestSaveRejectsUnsafeNamesTypesAndOversizeFiles(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := store.Save(ctx, test.filename, "", bytes.NewReader(test.content))
+			_, err := store.Save(ctx, test.filename, "", "", 0, bytes.NewReader(test.content))
 			if !errors.Is(err, test.wantErr) {
 				t.Errorf("Save() error = %v, want %v", err, test.wantErr)
 			}
@@ -129,14 +129,14 @@ func TestSVGValidationAndDatabaseFailureCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	validSVG := `<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"/></svg>`
-	item, err := store.Save(ctx, "icon.svg", "", strings.NewReader(validSVG))
+	item, err := store.Save(ctx, "icon.svg", "", "", 0, strings.NewReader(validSVG))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if item.FileType != "image/svg+xml" {
 		t.Errorf("SVG MIME = %q", item.FileType)
 	}
-	if _, err := store.Save(ctx, "unsafe.svg", "", strings.NewReader(`<svg><script>alert(1)</script></svg>`)); !errors.Is(err, ErrInvalidFile) {
+	if _, err := store.Save(ctx, "unsafe.svg", "", "", 0, strings.NewReader(`<svg><script>alert(1)</script></svg>`)); !errors.Is(err, ErrInvalidFile) {
 		t.Errorf("unsafe SVG error = %v, want ErrInvalidFile", err)
 	}
 
@@ -145,7 +145,7 @@ func TestSVGValidationAndDatabaseFailureCleanup(t *testing.T) {
 	`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Save(ctx, "rollback.png", "", bytes.NewReader([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'})); err == nil {
+	if _, err := store.Save(ctx, "rollback.png", "", "", 0, bytes.NewReader([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'})); err == nil {
 		t.Fatal("Save() succeeded despite database rejection trigger")
 	}
 	files, err := filepath.Glob(filepath.Join(root, "*", "*", "*"))

@@ -50,6 +50,7 @@ func TestMigrateCreatesCoreTablesAndIsIdempotent(t *testing.T) {
 		"migrations/006_active_plugins.sql",
 		"migrations/007_navigation_menus.sql",
 		"migrations/008_seo_fields.sql",
+		"migrations/009_category_parents.sql",
 	}; !reflect.DeepEqual(names, want) {
 		t.Errorf("MigrationNames() = %v, want %v", names, want)
 	}

@@ -971,3 +971,26 @@
   user-select: none;
 }
 
+
+/* ── Category tree ───────────────────────────────────────────── */
+.category-tree {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.cat-item {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .5rem .75rem;
+  border: 1px solid var(--border);
+  border-radius: .375rem;
+  margin-bottom: .375rem;
+  background: var(--surface);
+  cursor: grab;
+}
+.cat-item.dragging { opacity: .4; }
+.cat-drag-handle { color: var(--muted); font-size: 1.1rem; cursor: grab; }
+.cat-name { font-weight: 500; flex: 1; }
+.cat-parents { font-size: .8rem; }
+.cat-delete-form { margin-left: auto; }

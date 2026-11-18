@@ -80,7 +80,13 @@ func (h *handler) uploadMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	_, err = h.media.Save(r.Context(), header.Filename, r.FormValue("alt_text"), file)
+	description := r.FormValue("description")
+	folderIDStr := r.FormValue("folder_id")
+	var folderID int64
+	if folderIDStr != "" {
+		folderID, _ = strconv.ParseInt(folderIDStr, 10, 64)
+	}
+	_, err = h.media.Save(r.Context(), header.Filename, r.FormValue("alt_text"), description, folderID, file)
 	if errors.Is(err, media.ErrTooLarge) {
 		h.mediaActionError(w, r, http.StatusRequestEntityTooLarge, "O arquivo excede o limite de tamanho.")
 		return

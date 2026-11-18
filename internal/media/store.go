@@ -31,13 +31,15 @@ var (
 )
 
 type Item struct {
-	ID         int64
-	Filename   string
-	Filepath   string
-	FileType   string
-	FileSize   int64
-	AltText    string
-	UploadedAt string
+	ID          int64
+	Filename    string
+	Filepath    string
+	FileType    string
+	FileSize    int64
+	AltText     string
+	Description string
+	FolderID    int64
+	UploadedAt  string
 }
 
 type Store struct {
@@ -74,7 +76,7 @@ func (s *Store) MaxSize() int64 {
 	return s.maxSize
 }
 
-func (s *Store) Save(ctx context.Context, originalFilename, altText string, source io.Reader) (Item, error) {
+func (s *Store) Save(ctx context.Context, originalFilename, altText, description string, folderID int64, source io.Reader) (Item, error) {
 	safeName, extension, err := sanitizeFilename(originalFilename)
 	if err != nil {
 		return Item{}, err
@@ -161,12 +163,14 @@ func (s *Store) Save(ctx context.Context, originalFilename, altText string, sour
 
 	publicPath := "/uploads/" + filepath.ToSlash(filepath.Join(relativeDir, storedName))
 	item := Item{
-		Filename:   safeName,
-		Filepath:   publicPath,
-		FileType:   fileType,
-		FileSize:   size,
-		AltText:    strings.TrimSpace(altText),
-		UploadedAt: now.Format(time.RFC3339Nano),
+		Filename:    safeName,
+		Filepath:    publicPath,
+		FileType:    fileType,
+		FileSize:    size,
+		AltText:     strings.TrimSpace(altText),
+		Description: strings.TrimSpace(description),
+		FolderID:    folderID,
+		UploadedAt:  now.Format(time.RFC3339Nano),
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -205,7 +209,7 @@ func (s *Store) Save(ctx context.Context, originalFilename, altText string, sour
 
 func (s *Store) List(ctx context.Context) ([]Item, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, filename, filepath, file_type, file_size, alt_text, uploaded_at
+		SELECT id, filename, filepath, file_type, file_size, alt_text, COALESCE(description,''), COALESCE(folder_id,0), uploaded_at
 		FROM media ORDER BY uploaded_at DESC, id DESC
 	`)
 	if err != nil {
@@ -217,7 +221,7 @@ func (s *Store) List(ctx context.Context) ([]Item, error) {
 		var item Item
 		if err := rows.Scan(
 			&item.ID, &item.Filename, &item.Filepath, &item.FileType,
-			&item.FileSize, &item.AltText, &item.UploadedAt,
+			&item.FileSize, &item.AltText, &item.Description, &item.FolderID, &item.UploadedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan media: %w", err)
 		}
@@ -232,11 +236,11 @@ func (s *Store) List(ctx context.Context) ([]Item, error) {
 func (s *Store) FindByPath(ctx context.Context, publicPath string) (Item, error) {
 	var item Item
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, filename, filepath, file_type, file_size, alt_text, uploaded_at
+		SELECT id, filename, filepath, file_type, file_size, alt_text, COALESCE(description,''), COALESCE(folder_id,0), uploaded_at
 		FROM media WHERE filepath = ?
 	`, publicPath).Scan(
 		&item.ID, &item.Filename, &item.Filepath, &item.FileType,
-		&item.FileSize, &item.AltText, &item.UploadedAt,
+		&item.FileSize, &item.AltText, &item.Description, &item.FolderID, &item.UploadedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Item{}, ErrNotFound

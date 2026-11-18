@@ -16,6 +16,7 @@
         <a href="/admin/">Visão geral</a>
         <a href="/admin/posts">Posts</a>
         <a href="/admin/pages">Páginas</a>
+        <a href="/admin/categories">Categorias</a>
         <a href="/admin/media">Mídias</a>
         <a href="/admin/appearance">Aparência</a>
         <a href="/admin/appearance/menus">Menus</a>
@@ -39,7 +40,9 @@
       <main id="admin-content" class="admin-content" hx-boost="true">
         {{if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}
         {{if .Error}}<p class="error notice" role="alert">{{.Error}}</p>{{end}}
-        {{if eq .Mode "dashboard"}}
+        {{if eq .Mode "categories"}}
+          {{template "category-editor" .}}
+        {{else if eq .Mode "dashboard"}}
           <div class="page-heading">
             <div><p class="eyebrow">Painel</p><h1>Visão geral</h1></div>
             <a class="button button-primary" href="/admin/posts/new">Escrever post</a>

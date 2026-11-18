@@ -66,11 +66,12 @@ type Item struct {
 }
 
 type Category struct {
-	ID       int64
-	Name     string
-	Slug     string
-	ParentID int64
-	Depth    int
+	ID        int64
+	Name      string
+	Slug      string
+	ParentID  int64
+	ParentIDs []int64
+	Depth     int
 }
 
 type Input struct {
