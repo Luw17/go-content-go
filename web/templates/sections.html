@@ -1,0 +1,193 @@
+{{define "sections-manager"}}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Templates Globais</p>
+      <h1>Cabeçalhos e Rodapés</h1>
+    </div>
+    <div class="builder-heading-actions">
+      <a class="button" href="/admin/appearance/sections?type=header">+ Novo Cabeçalho</a>
+      <a class="button button-primary" href="/admin/appearance/sections?type=footer">+ Novo Rodapé</a>
+    </div>
+  </div>
+  <p class="muted">Crie e gerencie cabeçalhos e rodapés visuais diferentes para todo o site, homepage, artigos, páginas ou slugs específicos.</p>
+
+  <div class="sections-grid">
+    <section class="editor-panel sections-list-panel">
+      <h2>Seções configuradas</h2>
+      {{if .SiteSections}}
+        <div class="sections-list">
+          {{range .SiteSections}}
+            <article class="section-list-item{{if eq .ID $.SelectedSection.ID}} is-selected{{end}}">
+              <div class="section-list-info">
+                <div class="builder-badges">
+                  <span class="status-badge">{{if eq .SectionType "header"}}Cabeçalho{{else}}Rodapé{{end}}</span>
+                  {{if .Active}}<span class="status-badge status-published">Ativo</span>{{else}}<span class="status-badge">Inativo</span>{{end}}
+                </div>
+                <strong>{{.Name}}</strong>
+                <span class="muted">
+                  Escopo:
+                  {{if eq .TargetScope "all"}}Todo o site
+                  {{else if eq .TargetScope "home"}}Homepage
+                  {{else if eq .TargetScope "posts"}}Artigos (Posts)
+                  {{else if eq .TargetScope "pages"}}Páginas
+                  {{else}}Slug /{{.TargetSlug}}{{end}}
+                </span>
+              </div>
+              <div class="section-list-actions">
+                <a class="button" href="/admin/appearance/sections?edit={{.ID}}">Editar</a>
+                <form method="post" action="/admin/appearance/sections/{{.ID}}/delete">
+                  <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                  <button class="button button-danger" type="submit">Excluir</button>
+                </form>
+              </div>
+            </article>
+          {{end}}
+        </div>
+      {{else}}
+        <p class="empty-state">Nenhuma seção global criada. O tema atual usa o cabeçalho e rodapé padrão.</p>
+      {{end}}
+    </section>
+
+    <section class="editor-panel sections-editor-panel">
+      <h2>{{if .SelectedSection.ID}}Editar seção: {{.SelectedSection.Name}}{{else if eq .SelectedSection.SectionType "footer"}}Criar novo rodapé{{else}}Criar novo cabeçalho{{end}}</h2>
+
+      <div id="section-live-preview" class="section-live-preview" data-site-title="{{.SiteSettings.Title}}" data-site-tagline="{{.SiteSettings.Tagline}}"></div>
+
+      <form class="editor-form" method="post" action="/admin/appearance/sections/save" data-section-editor>
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+        <input type="hidden" name="id" value="{{.SelectedSection.ID}}">
+        <textarea id="section-columns-json" name="columns_json" hidden>{{.SelectedSection.ConfigJSON}}</textarea>
+
+        <div class="form-grid">
+          <div>
+            <label for="section-name">Nome da seção</label>
+            <input id="section-name" name="name" type="text" maxlength="120" value="{{.SelectedSection.Name}}" placeholder="Ex.: Cabeçalho da Homepage" required>
+          </div>
+          <div>
+            <label for="section-type">Tipo</label>
+            <select id="section-type" name="section_type">
+              <option value="header" {{if eq .SelectedSection.SectionType "header"}}selected{{end}}>Cabeçalho (Header)</option>
+              <option value="footer" {{if eq .SelectedSection.SectionType "footer"}}selected{{end}}>Rodapé (Footer)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div>
+            <label for="section-scope">Onde aplicar</label>
+            <select id="section-scope" name="target_scope">
+              <option value="all" {{if eq .SelectedSection.TargetScope "all"}}selected{{end}}>Todo o site (padrão global)</option>
+              <option value="home" {{if eq .SelectedSection.TargetScope "home"}}selected{{end}}>Somente Homepage (/)</option>
+              <option value="posts" {{if eq .SelectedSection.TargetScope "posts"}}selected{{end}}>Artigos (Posts)</option>
+              <option value="pages" {{if eq .SelectedSection.TargetScope "pages"}}selected{{end}}>Páginas</option>
+              <option value="slug" {{if eq .SelectedSection.TargetScope "slug"}}selected{{end}}>Slug específico</option>
+            </select>
+          </div>
+          <div data-section-slug-wrap {{if ne .SelectedSection.TargetScope "slug"}}hidden{{end}}>
+            <label for="section-slug">Slug de destino</label>
+            <input id="section-slug" name="target_slug" type="text" maxlength="100" value="{{.SelectedSection.TargetSlug}}" placeholder="Ex.: landing-produto">
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div>
+            <label for="section-layout">Estilo de layout</label>
+            <select id="section-layout" name="layout" data-current-layout="{{.SelectedSection.Config.Layout}}">
+              {{if eq .SelectedSection.SectionType "footer"}}
+                <option value="columns" {{if eq .SelectedSection.Config.Layout "columns"}}selected{{end}}>Colunas de links</option>
+                <option value="simple" {{if eq .SelectedSection.Config.Layout "simple"}}selected{{end}}>Simples horizontal</option>
+                <option value="centered" {{if eq .SelectedSection.Config.Layout "centered"}}selected{{end}}>Centralizado</option>
+              {{else}}
+                <option value="split" {{if eq .SelectedSection.Config.Layout "split"}}selected{{end}}>Dividido (Marca + Menu + CTA)</option>
+                <option value="centered" {{if eq .SelectedSection.Config.Layout "centered"}}selected{{end}}>Centralizado</option>
+                <option value="minimal" {{if eq .SelectedSection.Config.Layout "minimal"}}selected{{end}}>Minimalista</option>
+              {{end}}
+            </select>
+          </div>
+          <div>
+            <label for="section-tone">Aparência / Fundo</label>
+            <select id="section-tone" name="tone">
+              <option value="default" {{if eq .SelectedSection.Config.Tone "default"}}selected{{end}}>Padrão do tema</option>
+              <option value="surface" {{if eq .SelectedSection.Config.Tone "surface"}}selected{{end}}>Superfície destacada</option>
+              <option value="accent" {{if eq .SelectedSection.Config.Tone "accent"}}selected{{end}}>Cor de destaque suave</option>
+              <option value="dark" {{if eq .SelectedSection.Config.Tone "dark"}}selected{{end}}>Escuro (contraste alto)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="section-toggles">
+          <label class="checkbox-label">
+            <input type="checkbox" name="active" value="1" {{if .SelectedSection.Active}}checked{{end}}>
+            Seção ativa no site público
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" name="show_logo" value="1" {{if .SelectedSection.Config.ShowLogo}}checked{{end}}>
+            Exibir logotipo
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" name="show_site_title" value="1" {{if .SelectedSection.Config.ShowSiteTitle}}checked{{end}}>
+            Exibir título do site
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" name="show_menu" value="1" {{if .SelectedSection.Config.ShowMenu}}checked{{end}}>
+            Exibir menu de navegação
+          </label>
+          <label class="checkbox-label" data-header-only {{if eq .SelectedSection.SectionType "footer"}}hidden{{end}}>
+            <input type="checkbox" name="sticky" value="1" {{if .SelectedSection.Config.Sticky}}checked{{end}}>
+            Fixar cabeçalho no topo (sticky)
+          </label>
+          <label class="checkbox-label" data-footer-only {{if ne .SelectedSection.SectionType "footer"}}hidden{{end}}>
+            <input type="checkbox" name="show_tagline" value="1" {{if .SelectedSection.Config.ShowTagline}}checked{{end}}>
+            Exibir descrição / slogan do site
+          </label>
+        </div>
+
+        <label for="section-menu-location">Localização do menu vinculado</label>
+        <select id="section-menu-location" name="menu_location">
+          <option value="primary" {{if eq .SelectedSection.Config.MenuLocation "primary"}}selected{{end}}>Menu principal (primary)</option>
+          <option value="footer" {{if eq .SelectedSection.Config.MenuLocation "footer"}}selected{{end}}>Menu do rodapé (footer)</option>
+        </select>
+
+        <div class="form-grid" data-header-only {{if eq .SelectedSection.SectionType "footer"}}hidden{{end}}>
+          <div>
+            <label for="section-announcement-text">Barra de anúncio <span class="muted">(opcional)</span></label>
+            <input id="section-announcement-text" name="announcement_text" type="text" maxlength="200" value="{{.SelectedSection.Config.AnnouncementText}}" placeholder="Ex.: Nova versão 2.0 disponível!">
+          </div>
+          <div>
+            <label for="section-announcement-url">Link da barra de anúncio <span class="muted">(opcional)</span></label>
+            <input id="section-announcement-url" name="announcement_url" type="text" maxlength="2048" value="{{.SelectedSection.Config.AnnouncementURL}}" placeholder="/novidades ou https://…">
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div>
+            <label for="section-cta-label">Botão de destaque (CTA) <span class="muted">(opcional)</span></label>
+            <input id="section-cta-label" name="cta_label" type="text" maxlength="60" value="{{.SelectedSection.Config.CTALabel}}" placeholder="Ex.: Fale conosco">
+          </div>
+          <div>
+            <label for="section-cta-url">Link do botão CTA</label>
+            <input id="section-cta-url" name="cta_url" type="text" maxlength="2048" value="{{.SelectedSection.Config.CTAURL}}" placeholder="/contato ou https://…">
+          </div>
+        </div>
+
+        <div data-footer-only {{if ne .SelectedSection.SectionType "footer"}}hidden{{end}}>
+          <label for="section-custom-text">Texto institucional do rodapé <span class="muted">(opcional)</span></label>
+          <textarea id="section-custom-text" name="custom_text" rows="2" maxlength="400" placeholder="Substitui o slogan padrão no rodapé">{{.SelectedSection.Config.CustomText}}</textarea>
+
+          <label for="section-copyright">Texto de direitos autorais</label>
+          <input id="section-copyright" name="copyright_text" type="text" maxlength="200" value="{{.SelectedSection.Config.CopyrightText}}" placeholder="© 2026 Meu Site. Todos os direitos reservados.">
+
+          <div class="footer-columns-builder">
+            <div class="builder-canvas-heading">
+              <h3>Colunas de links</h3>
+              <button class="button" type="button" data-add-footer-col>+ Adicionar coluna</button>
+            </div>
+            <div id="footer-columns-editor" class="footer-columns-editor"></div>
+          </div>
+        </div>
+
+        <button class="button button-primary" type="submit">Salvar seção global</button>
+      </form>
+    </section>
+  </div>
+{{end}}

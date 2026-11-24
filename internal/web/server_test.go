@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Luw17/go-content-go/internal/auth"
 	"github.com/Luw17/go-content-go/internal/content"
@@ -1884,5 +1885,535 @@ func TestCoreSEOPublicRenderingAndSettings(t *testing.T) {
 	}
 	if !strings.Contains(homeBody, `"@type":"WebSite"`) {
 		t.Errorf("home missing WebSite JSON-LD: %s", homeBody)
+	}
+}
+
+
+func TestVisualPageBuilderHomepageReusableLayoutAndForms(t *testing.T) {
+	ctx := context.Background()
+	db, err := database.Open(ctx, filepath.Join(t.TempDir(), "builder-web.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := database.Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	admin, err := auth.CreateInitialAdmin(ctx, db, "admin", "strong-password-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := content.Save(ctx, db, content.Input{
+		Type:    content.TypePost,
+		Title:   "Artigo no Builder",
+		Content: "Resumo do artigo publicado no CMS.",
+		Status:  content.StatusPublished,
+	}, admin.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	handler, err := NewHandler(db, Options{
+		UploadDir: t.TempDir(),
+		ThemeDir:  t.TempDir(),
+		PluginDir: t.TempDir(),
+		BackupDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	token, expiresAt, err := auth.CreateSession(ctx, db, admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionCookie := &http.Cookie{Name: sessionCookieName, Value: token, Path: "/", Expires: expiresAt}
+
+	// 1. Open visual builder new page with preset
+	newPage := getWithCookies(handler, "/admin/builder/new?preset=homepage-editorial", sessionCookie)
+	if newPage.Code != http.StatusOK {
+		t.Fatalf("GET /admin/builder/new status = %d", newPage.Code)
+	}
+	csrfCookie := cookieNamed(t, newPage, csrfCookieName)
+	csrfToken := csrfFromBody(t, newPage.Body.String())
+
+	blocksJSON := `[
+		{"id":"hero-top","type":"hero","eyebrow":"Versão 2.0","heading":"Homepage Modular Visual","subheading":"Crie páginas sem código.","primary_cta_label":"Explorar","primary_cta_url":"#posts-list","align":"center","tone":"accent"},
+		{"id":"posts-list","type":"posts","heading":"Últimas Histórias","count":4,"columns":2,"show_excerpt":true,"show_image":true},
+		{"id":"contato-home","type":"form","form_id":"contato-home","form_mode":"contact","heading":"Fale Conosco","submit_label":"Enviar","success_message":"Recebido com sucesso!"}
+	]`
+
+	// 2. Preview endpoint renders blocks via server
+	previewResp := postForm(handler, "/admin/builder/preview", url.Values{
+		"csrf_token":  {csrfToken},
+		"blocks_json": {blocksJSON},
+	}, sessionCookie, csrfCookie)
+	if previewResp.Code != http.StatusOK {
+		t.Fatalf("POST /admin/builder/preview status = %d, body=%s", previewResp.Code, previewResp.Body.String())
+	}
+	if !strings.Contains(previewResp.Body.String(), "Homepage Modular Visual") || !strings.Contains(previewResp.Body.String(), "Artigo no Builder") {
+		t.Fatalf("preview missing expected content: %s", previewResp.Body.String())
+	}
+	if strings.Contains(previewResp.Body.String(), `action="/forms/submit"`) || strings.Contains(previewResp.Body.String(), "required") {
+		t.Fatalf("preview form should be non-interactive and not include required inputs: %s", previewResp.Body.String())
+	}
+
+	// 3. Save layout and activate as homepage
+	saveResp := postForm(handler, "/admin/builder/save", url.Values{
+		"csrf_token":  {csrfToken},
+		"name":        {"Homepage Principal"},
+		"description": {"Layout modular da home"},
+		"is_homepage": {"1"},
+		"blocks_json": {blocksJSON},
+	}, sessionCookie, csrfCookie)
+	if saveResp.Code != http.StatusSeeOther {
+		t.Fatalf("POST /admin/builder/save status = %d, body=%s", saveResp.Code, saveResp.Body.String())
+	}
+
+	// 4. Verify public homepage renders the modular layout
+	homeRec := httptest.NewRecorder()
+	handler.ServeHTTP(homeRec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if homeRec.Code != http.StatusOK {
+		t.Fatalf("GET / status = %d", homeRec.Code)
+	}
+	homeBody := homeRec.Body.String()
+	for _, want := range []string{"Homepage Modular Visual", "Artigo no Builder", "Fale Conosco", `action="/forms/submit"`} {
+		if !strings.Contains(homeBody, want) {
+			t.Errorf("public homepage missing %q", want)
+		}
+	}
+
+	// 5. Assign the reusable layout to a custom Page
+	pageForm := getWithCookies(handler, "/admin/pages/new", sessionCookie)
+	pageCSRF := cookieNamed(t, pageForm, csrfCookieName)
+	savePageResp := postForm(handler, "/admin/pages/save", url.Values{
+		"csrf_token": {csrfFromBody(t, pageForm.Body.String())},
+		"title":      {"Landing Especial"},
+		"slug":       {"landing-especial"},
+		"content":    {"Texto complementar da landing."},
+		"status":     {"published"},
+		"layout_id":  {"1"},
+	}, sessionCookie, pageCSRF)
+	if savePageResp.Code != http.StatusSeeOther {
+		t.Fatalf("POST /admin/pages/save status = %d, body=%s", savePageResp.Code, savePageResp.Body.String())
+	}
+
+	landingRec := httptest.NewRecorder()
+	handler.ServeHTTP(landingRec, httptest.NewRequest(http.MethodGet, "/landing-especial", nil))
+	if landingRec.Code != http.StatusOK {
+		t.Fatalf("GET /landing-especial status = %d", landingRec.Code)
+	}
+	if !strings.Contains(landingRec.Body.String(), "Homepage Modular Visual") || !strings.Contains(landingRec.Body.String(), "Texto complementar da landing.") {
+		t.Errorf("reusable layout page missing expected blocks or extra content")
+	}
+
+	// 6. Submit public form and verify confirmation + persistence in admin
+	formReq := httptest.NewRequest(http.MethodPost, "/forms/submit", strings.NewReader(url.Values{
+		"form_id":   {"contato-home"},
+		"page_path": {"/"},
+		"name":      {"João Silva"},
+		"email":     {"joao@example.com"},
+		"message":   {"Quero testar o construtor visual!"},
+	}.Encode()))
+	formReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	formResp := httptest.NewRecorder()
+	handler.ServeHTTP(formResp, formReq)
+	if formResp.Code != http.StatusSeeOther {
+		t.Fatalf("POST /forms/submit status = %d, body=%s", formResp.Code, formResp.Body.String())
+	}
+	if loc := formResp.Header().Get("Location"); !strings.Contains(loc, "form_submitted=contato-home") {
+		t.Fatalf("form submit redirect = %q, want form_submitted=contato-home", loc)
+	}
+
+	confirmedHome := httptest.NewRecorder()
+	handler.ServeHTTP(confirmedHome, httptest.NewRequest(http.MethodGet, "/?form_submitted=contato-home", nil))
+	if !strings.Contains(confirmedHome.Body.String(), "Recebido com sucesso!") {
+		t.Errorf("confirmed home missing success message")
+	}
+
+	builderOverview := getWithCookies(handler, "/admin/builder", sessionCookie)
+	if builderOverview.Code != http.StatusOK {
+		t.Fatalf("GET /admin/builder status = %d", builderOverview.Code)
+	}
+	if !strings.Contains(builderOverview.Body.String(), "joao@example.com") || !strings.Contains(builderOverview.Body.String(), "Homepage Principal") {
+		t.Errorf("builder overview missing layout or form submission")
+	}
+
+	// 7. Clear homepage layout to return to classic homepage
+	clearCSRF := cookieNamed(t, builderOverview, csrfCookieName)
+	clearResp := postForm(handler, "/admin/builder/homepage/clear", url.Values{
+		"csrf_token": {csrfFromBody(t, builderOverview.Body.String())},
+	}, sessionCookie, clearCSRF)
+	if clearResp.Code != http.StatusSeeOther {
+		t.Fatalf("POST /admin/builder/homepage/clear status = %d", clearResp.Code)
+	}
+	classicHome := httptest.NewRecorder()
+	handler.ServeHTTP(classicHome, httptest.NewRequest(http.MethodGet, "/", nil))
+	if strings.Contains(classicHome.Body.String(), "Homepage Modular Visual") {
+		t.Errorf("classic homepage should not render cleared builder layout")
+	}
+}
+
+func TestGlobalHeadersAndFootersPerSection(t *testing.T) {
+	ctx := context.Background()
+	db, err := database.Open(ctx, filepath.Join(t.TempDir(), "sections-web.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := database.Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	admin, err := auth.CreateInitialAdmin(ctx, db, "admin", "strong-password-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := content.Save(ctx, db, content.Input{
+		Type:    content.TypePost,
+		Title:   "Post Exemplo",
+		Slug:    "post-exemplo",
+		Content: "Texto do post.",
+		Status:  content.StatusPublished,
+	}, admin.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := content.Save(ctx, db, content.Input{
+		Type:    content.TypePage,
+		Title:   "Campanha",
+		Slug:    "campanha",
+		Content: "Página de campanha.",
+		Status:  content.StatusPublished,
+	}, admin.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	handler, err := NewHandler(db, Options{
+		UploadDir: t.TempDir(),
+		ThemeDir:  t.TempDir(),
+		PluginDir: t.TempDir(),
+		BackupDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	token, expiresAt, err := auth.CreateSession(ctx, db, admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionCookie := &http.Cookie{Name: sessionCookieName, Value: token, Path: "/", Expires: expiresAt}
+
+	saveSection := func(values url.Values) {
+		t.Helper()
+		page := getWithCookies(handler, "/admin/appearance/sections", sessionCookie)
+		if page.Code != http.StatusOK {
+			t.Fatalf("GET /admin/appearance/sections status = %d", page.Code)
+		}
+		csrfCookie := cookieNamed(t, page, csrfCookieName)
+		values.Set("csrf_token", csrfFromBody(t, page.Body.String()))
+		resp := postForm(handler, "/admin/appearance/sections/save", values, sessionCookie, csrfCookie)
+		if resp.Code != http.StatusSeeOther {
+			t.Fatalf("POST /admin/appearance/sections/save status = %d, body=%s", resp.Code, resp.Body.String())
+		}
+	}
+
+	// Global header (all)
+	saveSection(url.Values{
+		"name":              {"Cabeçalho Global"},
+		"section_type":      {"header"},
+		"target_scope":      {"all"},
+		"layout":            {"split"},
+		"tone":              {"surface"},
+		"active":            {"1"},
+		"show_site_title":   {"1"},
+		"show_menu":         {"1"},
+		"announcement_text": {"Aviso Global do Site"},
+	})
+	// Home-specific header
+	saveSection(url.Values{
+		"name":              {"Cabeçalho da Home"},
+		"section_type":      {"header"},
+		"target_scope":      {"home"},
+		"layout":            {"centered"},
+		"tone":              {"dark"},
+		"active":            {"1"},
+		"show_site_title":   {"1"},
+		"cta_label":         {"Assinar Home"},
+		"cta_url":           {"/campanha"},
+	})
+	// Slug-specific header for /campanha
+	saveSection(url.Values{
+		"name":              {"Cabeçalho Campanha"},
+		"section_type":      {"header"},
+		"target_scope":      {"slug"},
+		"target_slug":       {"campanha"},
+		"layout":            {"minimal"},
+		"tone":              {"accent"},
+		"active":            {"1"},
+		"show_site_title":   {"1"},
+		"announcement_text": {"Oferta Especial da Campanha"},
+	})
+	// Global footer with columns
+	saveSection(url.Values{
+		"name":            {"Rodapé Corporativo"},
+		"section_type":    {"footer"},
+		"target_scope":    {"all"},
+		"layout":          {"columns"},
+		"tone":            {"dark"},
+		"active":          {"1"},
+		"show_site_title": {"1"},
+		"custom_text":     {"Editorial independente feito em Go."},
+		"copyright_text":  {"© 2026 Go Content Go!"},
+		"columns_json":    {`[{"title":"Navegação","links":[{"label":"Campanha","url":"/campanha"}]}]`},
+	})
+
+	// Check Homepage -> home header + global footer
+	homeRec := httptest.NewRecorder()
+	handler.ServeHTTP(homeRec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if homeRec.Code != http.StatusOK {
+		t.Fatalf("GET / status = %d", homeRec.Code)
+	}
+	homeHTML := homeRec.Body.String()
+	if !strings.Contains(homeHTML, "Assinar Home") || strings.Contains(homeHTML, "Aviso Global do Site") {
+		t.Errorf("homepage should render home-specific header, got: %s", homeHTML)
+	}
+	if !strings.Contains(homeHTML, "Editorial independente feito em Go.") || !strings.Contains(homeHTML, "© 2026 Go Content Go!") {
+		t.Errorf("homepage missing visual global footer")
+	}
+
+	// Check Post -> falls back to global header
+	postRec := httptest.NewRecorder()
+	handler.ServeHTTP(postRec, httptest.NewRequest(http.MethodGet, "/post-exemplo", nil))
+	if !strings.Contains(postRec.Body.String(), "Aviso Global do Site") {
+		t.Errorf("post should inherit global header")
+	}
+
+	// Check /campanha -> slug-specific header wins
+	slugRec := httptest.NewRecorder()
+	handler.ServeHTTP(slugRec, httptest.NewRequest(http.MethodGet, "/campanha", nil))
+	if !strings.Contains(slugRec.Body.String(), "Oferta Especial da Campanha") {
+		t.Errorf("/campanha should render slug-specific header")
+	}
+}
+
+
+func TestNative2FALoginFlowAndManagement(t *testing.T) {
+	ctx := context.Background()
+	db, err := database.Open(ctx, filepath.Join(t.TempDir(), "totp-web.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := database.Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	admin, err := auth.CreateInitialAdmin(ctx, db, "admin", "strong-password-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, expiresAt, err := auth.CreateSession(ctx, db, admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionCookie := &http.Cookie{Name: sessionCookieName, Value: token, Path: "/", Expires: expiresAt}
+
+	handler, err := NewHandler(db, Options{
+		UploadDir: t.TempDir(),
+		ThemeDir:  t.TempDir(),
+		PluginDir: t.TempDir(),
+		BackupDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Open /admin/security and extract generated secret
+	secPage := getWithCookies(handler, "/admin/security", sessionCookie)
+	if secPage.Code != http.StatusOK {
+		t.Fatalf("GET /admin/security status = %d", secPage.Code)
+	}
+	secBody := secPage.Body.String()
+	const secretMarker = `name="totp_secret" value="`
+	idx := strings.Index(secBody, secretMarker)
+	if idx < 0 {
+		t.Fatalf("totp_secret input missing from security page")
+	}
+	rest := secBody[idx+len(secretMarker):]
+	secret := rest[:strings.Index(rest, `"`)]
+
+	code, err := auth.TOTPCode(secret, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Enable 2FA
+	secCSRF := cookieNamed(t, secPage, csrfCookieName)
+	enableResp := postForm(handler, "/admin/security/totp/enable", url.Values{
+		"csrf_token":  {csrfFromBody(t, secBody)},
+		"totp_secret": {secret},
+		"totp_code":   {code},
+	}, sessionCookie, secCSRF)
+	if enableResp.Code != http.StatusSeeOther || !strings.Contains(enableResp.Header().Get("Location"), "notice=enabled") {
+		t.Fatalf("enable 2FA response = %d (%s)", enableResp.Code, enableResp.Header().Get("Location"))
+	}
+
+	// 3. Login without 2FA code must fail with 401
+	loginPage := httptest.NewRecorder()
+	handler.ServeHTTP(loginPage, httptest.NewRequest(http.MethodGet, "/admin/login", nil))
+	loginCSRF := cookieNamed(t, loginPage, csrfCookieName)
+	loginNoCode := postForm(handler, "/admin/login", url.Values{
+		"csrf_token": {csrfFromBody(t, loginPage.Body.String())},
+		"username":   {"admin"},
+		"password":   {"strong-password-123"},
+	}, loginCSRF)
+	if loginNoCode.Code != http.StatusUnauthorized {
+		t.Fatalf("login without 2FA code = %d, want 401", loginNoCode.Code)
+	}
+
+	// 4. Login with valid 2FA code succeeds
+	loginOK := postForm(handler, "/admin/login", url.Values{
+		"csrf_token": {csrfFromBody(t, loginNoCode.Body.String())},
+		"username":   {"admin"},
+		"password":   {"strong-password-123"},
+		"totp_code":  {code},
+	}, loginCSRF)
+	if loginOK.Code != http.StatusSeeOther || loginOK.Header().Get("Location") != "/admin/" {
+		t.Fatalf("login with valid 2FA code = %d (%s)", loginOK.Code, loginOK.Header().Get("Location"))
+	}
+
+	// 5. Disable 2FA
+	secEnabled := getWithCookies(handler, "/admin/security", sessionCookie)
+	disableCSRF := cookieNamed(t, secEnabled, csrfCookieName)
+	disableResp := postForm(handler, "/admin/security/totp/disable", url.Values{
+		"csrf_token": {csrfFromBody(t, secEnabled.Body.String())},
+	}, sessionCookie, disableCSRF)
+	if disableResp.Code != http.StatusSeeOther || !strings.Contains(disableResp.Header().Get("Location"), "notice=disabled") {
+		t.Fatalf("disable 2FA response = %d", disableResp.Code)
+	}
+}
+
+func TestPluginExtendedHooksJSONLDAndAdminPages(t *testing.T) {
+	ctx := context.Background()
+	db, err := database.Open(ctx, filepath.Join(t.TempDir(), "plugin-ext-web.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := database.Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	admin, err := auth.CreateInitialAdmin(ctx, db, "admin", "strong-password-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := content.Save(ctx, db, content.Input{
+		Type:    content.TypePost,
+		Title:   "Post com Plugin",
+		Slug:    "post-com-plugin",
+		Content: "Texto original.",
+		Status:  content.StatusPublished,
+	}, admin.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	pluginRoot := t.TempDir()
+	pluginDir := filepath.Join(pluginRoot, "faq-schema")
+	if err := os.MkdirAll(pluginDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"id":"faq-schema","name":"FAQ Schema","version":"1.0.0","description":"Injects FAQ JSON-LD and content badges","author":"Test","main_file":"main.lua","hooks":["content:before_render","content:after_render","head:inject_jsonld","admin:menu_register","admin:page_register"]}`
+	source := `return { hooks = {
+		["content:before_render"] = function(md)
+			local tag = settings.get("badge") or ""
+			if tag ~= "" then return md .. "\n\n" .. tag end
+			return md
+		end,
+		["content:after_render"] = function(html)
+			return html .. "<p>renderizado-com-after</p><script>evil()</script>"
+		end,
+		["head:inject_jsonld"] = function(current, ctx)
+			return '{"@context":"https://schema.org","@type":"FAQPage","name":"' .. (ctx.content_title or ctx.title or "") .. '"}'
+		end,
+		["admin:menu_register"] = function()
+			return { label = "FAQ Schema Painel" }
+		end,
+		["admin:page_register"] = function()
+			return { title = "Painel FAQ Schema", html = "<p>Badge: " .. (settings.get("badge") or "vazio") .. "</p><script>bad()</script>" }
+		end
+	} }`
+	if err := os.WriteFile(filepath.Join(pluginDir, "plugin.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginDir, "main.lua"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	token, expiresAt, err := auth.CreateSession(ctx, db, admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionCookie := &http.Cookie{Name: sessionCookieName, Value: token, Path: "/", Expires: expiresAt}
+
+	handler, err := NewHandler(db, Options{
+		UploadDir: t.TempDir(),
+		ThemeDir:  t.TempDir(),
+		PluginDir: pluginRoot,
+		BackupDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Activate plugin
+	listPage := getWithCookies(handler, "/admin/plugins", sessionCookie)
+	listCSRF := cookieNamed(t, listPage, csrfCookieName)
+	actResp := postForm(handler, "/admin/plugins/faq-schema/activate", url.Values{
+		"csrf_token": {csrfFromBody(t, listPage.Body.String())},
+	}, sessionCookie, listCSRF)
+	if actResp.Code != http.StatusSeeOther {
+		t.Fatalf("activate plugin = %d", actResp.Code)
+	}
+
+	// Open plugin admin page & verify sidebar menu registered
+	pluginPage := getWithCookies(handler, "/admin/plugin/faq-schema", sessionCookie)
+	if pluginPage.Code != http.StatusOK {
+		t.Fatalf("GET /admin/plugin/faq-schema = %d", pluginPage.Code)
+	}
+	if !strings.Contains(pluginPage.Body.String(), "FAQ Schema Painel") || !strings.Contains(pluginPage.Body.String(), "Painel FAQ Schema") {
+		t.Errorf("plugin admin page missing menu or title")
+	}
+	if strings.Contains(pluginPage.Body.String(), "<script>bad()</script>") {
+		t.Errorf("plugin admin HTML was not sanitized")
+	}
+
+	// Save isolated plugin setting
+	pluginCSRF := cookieNamed(t, pluginPage, csrfCookieName)
+	saveSettingResp := postForm(handler, "/admin/plugin/faq-schema/settings", url.Values{
+		"csrf_token":    {csrfFromBody(t, pluginPage.Body.String())},
+		"setting_key":   {"badge"},
+		"setting_value": {"**Verificado pelo plugin**"},
+	}, sessionCookie, pluginCSRF)
+	if saveSettingResp.Code != http.StatusSeeOther {
+		t.Fatalf("save plugin setting = %d", saveSettingResp.Code)
+	}
+
+	// Verify public post has before_render setting, sanitized after_render, and FAQPage JSON-LD
+	pubRec := httptest.NewRecorder()
+	handler.ServeHTTP(pubRec, httptest.NewRequest(http.MethodGet, "/post-com-plugin", nil))
+	if pubRec.Code != http.StatusOK {
+		t.Fatalf("GET /post-com-plugin = %d", pubRec.Code)
+	}
+	pubHTML := pubRec.Body.String()
+	for _, want := range []string{
+		"<strong>Verificado pelo plugin</strong>",
+		"<p>renderizado-com-after</p>",
+		`"@type":"FAQPage"`,
+		`"name":"Post com Plugin"`,
+	} {
+		if !strings.Contains(pubHTML, want) {
+			t.Errorf("public post missing %q", want)
+		}
+	}
+	if strings.Contains(pubHTML, "<script>evil()</script>") {
+		t.Errorf("public post contained unsanitized script from content:after_render")
 	}
 }

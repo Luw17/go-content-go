@@ -357,6 +357,12 @@ func parseTheme(files fs.FS, funcs template.FuncMap) (*template.Template, error)
 	if _, ok := funcs["render_menu"]; !ok {
 		funcs["render_menu"] = func(string) template.HTML { return "" }
 	}
+	if _, ok := funcs["render_header"]; !ok {
+		funcs["render_header"] = func() template.HTML { return "" }
+	}
+	if _, ok := funcs["render_footer"]; !ok {
+		funcs["render_footer"] = func() template.HTML { return "" }
+	}
 	templates, err := template.New("index.html").Funcs(funcs).ParseFS(files, required[:4]...)
 	if err != nil {
 		return nil, fmt.Errorf("parse theme templates: %w", err)

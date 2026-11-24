@@ -34,9 +34,10 @@ var (
 )
 
 type User struct {
-	ID       int64
-	Username string
-	Role     string
+	ID          int64
+	Username    string
+	Role        string
+	TOTPEnabled bool
 }
 
 // SetupAvailable reports whether the first administrator still needs to be created.
@@ -92,10 +93,12 @@ func Authenticate(ctx context.Context, db *sql.DB, username, password string) (U
 	username = strings.ToLower(strings.TrimSpace(username))
 	var user User
 	var passwordHash string
+	var totpEnabled int
 	err := db.QueryRowContext(ctx,
-		"SELECT id, username, role, password_hash FROM users WHERE username = ?",
+		"SELECT id, username, role, password_hash, totp_enabled FROM users WHERE username = ?",
 		username,
-	).Scan(&user.ID, &user.Username, &user.Role, &passwordHash)
+	).Scan(&user.ID, &user.Username, &user.Role, &passwordHash, &totpEnabled)
+	user.TOTPEnabled = totpEnabled == 1
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return User{}, fmt.Errorf("load user credentials: %w", err)
 	}
@@ -160,13 +163,15 @@ func SessionUser(ctx context.Context, db *sql.DB, token string) (User, bool, err
 	}
 	tokenHash := sha256.Sum256([]byte(token))
 	var user User
+	var totpEnabled int
 	err := db.QueryRowContext(ctx, `
-		SELECT users.id, users.username, users.role
+		SELECT users.id, users.username, users.role, users.totp_enabled
 		FROM sessions
 		JOIN users ON users.id = sessions.user_id
 		WHERE sessions.token_hash = ? AND sessions.expires_at > ?
 	`, tokenHash[:], time.Now().UTC().UnixNano()).
-		Scan(&user.ID, &user.Username, &user.Role)
+		Scan(&user.ID, &user.Username, &user.Role, &totpEnabled)
+	user.TOTPEnabled = totpEnabled == 1
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, false, nil
 	}
@@ -211,7 +216,7 @@ func CreateUser(ctx context.Context, db *sql.DB, username, password, role string
 }
 
 func Users(ctx context.Context, db *sql.DB) ([]User, error) {
-	rows, err := db.QueryContext(ctx, "SELECT id, username, role FROM users ORDER BY username")
+	rows, err := db.QueryContext(ctx, "SELECT id, username, role, totp_enabled FROM users ORDER BY username")
 	if err != nil {
 		return nil, fmt.Errorf("list users: %w", err)
 	}
@@ -219,9 +224,11 @@ func Users(ctx context.Context, db *sql.DB) ([]User, error) {
 	var users []User
 	for rows.Next() {
 		var user User
-		if err := rows.Scan(&user.ID, &user.Username, &user.Role); err != nil {
+		var totpEnabled int
+		if err := rows.Scan(&user.ID, &user.Username, &user.Role, &totpEnabled); err != nil {
 			return nil, fmt.Errorf("scan user: %w", err)
 		}
+		user.TOTPEnabled = totpEnabled == 1
 		users = append(users, user)
 	}
 	if err := rows.Err(); err != nil {

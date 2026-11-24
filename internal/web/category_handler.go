@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/Luw17/go-content-go/internal/content"
 )
@@ -30,20 +31,23 @@ func (h *handler) categoryList(w http.ResponseWriter, r *http.Request) {
 		Mode:       "categories",
 		Title:      "Categorias",
 		Username:   user.Username,
+		Role:       user.Role,
 		CSRFToken:  token,
 		Categories: cats,
 	}
 	if r.URL.Query().Get("saved") == "1" {
-		page.Notice = "Categorias atualizadas."
+		page.Notice = "Categoria salva com sucesso."
 	}
 	if r.URL.Query().Get("deleted") == "1" {
 		page.Notice = "Categoria excluída."
 	}
+	if r.URL.Query().Get("error") == "invalid" {
+		page.Error = "Informe um nome válido para a categoria."
+	}
 	h.renderAdmin(w, page)
 }
 
-// saveCategory handles POST /admin/categories/save (JSON body).
-// Body: {"name":"…","parent_ids":[1,2],"id":0}
+// saveCategory handles POST /admin/categories/save (standard HTML form or JSON).
 func (h *handler) saveCategory(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.requireAdmin(w, r); !ok {
 		return
@@ -53,28 +57,58 @@ func (h *handler) saveCategory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var body struct {
-		ID        int64   `json:"id"`
-		Name      string  `json:"name"`
-		ParentIDs []int64 `json:"parent_ids"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "JSON inválido.", http.StatusBadRequest)
-		return
+	isJSON := strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "application/json")
+	var input content.CategoryInput
+	if isJSON {
+		var body struct {
+			ID        int64   `json:"id"`
+			Name      string  `json:"name"`
+			ParentIDs []int64 `json:"parent_ids"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "JSON inválido.", http.StatusBadRequest)
+			return
+		}
+		input = content.CategoryInput{ID: body.ID, Name: body.Name, ParentIDs: body.ParentIDs}
+	} else {
+		if err := parseForm(w, r); err != nil {
+			http.Error(w, "Formulário inválido.", http.StatusBadRequest)
+			return
+		}
+		id, err := optionalID(r.FormValue("id"))
+		if err != nil {
+			http.Redirect(w, r, "/admin/categories?error=invalid", http.StatusSeeOther)
+			return
+		}
+		parentIDs, err := parseCategoryIDs(r.Form["parent_ids"])
+		if err != nil {
+			http.Redirect(w, r, "/admin/categories?error=invalid", http.StatusSeeOther)
+			return
+		}
+		input = content.CategoryInput{
+			ID:        id,
+			Name:      r.FormValue("name"),
+			ParentIDs: parentIDs,
+		}
 	}
 
-	cat, err := content.SaveCategory(r.Context(), h.db, content.CategoryInput{
-		ID:        body.ID,
-		Name:      body.Name,
-		ParentIDs: body.ParentIDs,
-	})
+	cat, err := content.SaveCategory(r.Context(), h.db, input)
 	if err != nil {
 		log.Printf("save category: %v", err)
-		http.Error(w, "Não foi possível salvar a categoria.", http.StatusInternalServerError)
+		if isJSON {
+			http.Error(w, "Não foi possível salvar a categoria.", http.StatusUnprocessableEntity)
+			return
+		}
+		http.Redirect(w, r, "/admin/categories?error=invalid", http.StatusSeeOther)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(cat)
+	h.cache.Clear()
+	if isJSON {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(cat)
+		return
+	}
+	http.Redirect(w, r, "/admin/categories?saved=1", http.StatusSeeOther)
 }
 
 // deleteCategory handles POST /admin/categories/{id}/delete.
@@ -100,11 +134,11 @@ func (h *handler) deleteCategory(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Não foi possível excluir a categoria.", http.StatusInternalServerError)
 		return
 	}
+	h.cache.Clear()
 	http.Redirect(w, r, "/admin/categories?deleted=1", http.StatusSeeOther)
 }
 
-// reorderCategories handles POST /admin/categories/reorder (JSON body with ordered IDs).
-// Body: {"order":[3,1,2]} – stores display order via parent relationships.
+// reorderCategories handles POST /admin/categories/reorder.
 func (h *handler) reorderCategories(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.requireAdmin(w, r); !ok {
 		return
@@ -113,14 +147,19 @@ func (h *handler) reorderCategories(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "CSRF inválido.", http.StatusForbidden)
 		return
 	}
-	var body struct {
-		Order []int64 `json:"order"`
+	if strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "application/json") {
+		var body struct {
+			Order []int64 `json:"order"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "JSON inválido.", http.StatusBadRequest)
+			return
+		}
+	} else {
+		if err := parseForm(w, r); err != nil {
+			http.Error(w, "Formulário inválido.", http.StatusBadRequest)
+			return
+		}
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "JSON inválido.", http.StatusBadRequest)
-		return
-	}
-	// Reorder is acknowledged; actual visual order is determined by the
-	// category tree structure. Future: persist a sort_order column.
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -10,12 +10,19 @@
     {{.HeadTags}}
   </head>
   <body>
+    {{$customHeader := render_header}}{{if $customHeader}}{{$customHeader}}{{else}}
     <header class="site-header">
       <a class="brand" href="/" aria-label="{{.Site.Title}} — início">
         {{if .Site.Logo}}<img class="brand-logo" src="{{.Site.Logo}}" alt="{{.Site.Title}}">{{else}}{{.Site.Title}}{{end}}
       </a>
       <div class="site-nav">{{render_menu "primary"}}</div>
     </header>
+    {{end}}
+    {{if .BuilderHTML}}
+      <main class="site-main builder-main">
+        {{.BuilderHTML}}
+      </main>
+    {{else}}
     <main class="site-main">
       <section class="intro">
         <p class="eyebrow">Caderno aberto <span aria-hidden="true">✳</span> {{.Site.Title}}</p>
@@ -56,6 +63,8 @@
         {{end}}
       </section>
     </main>
+    {{end}}
+    {{$customFooter := render_footer}}{{if $customFooter}}{{$customFooter}}{{else}}
     <footer class="site-footer">
       <a class="brand brand-small" href="/">
         {{if .Site.Logo}}<img class="brand-logo" src="{{.Site.Logo}}" alt="{{.Site.Title}}">{{else}}{{.Site.Title}}{{end}}
@@ -63,5 +72,6 @@
       {{if .Site.Tagline}}<p>{{.Site.Tagline}}</p>{{end}}
       {{render_menu "footer"}}
     </footer>
+    {{end}}
   </body>
 </html>

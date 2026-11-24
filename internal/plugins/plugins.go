@@ -31,15 +31,23 @@ var (
 	ErrNotFound = errors.New("plugin not found")
 	pluginID    = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 	hookSet     = map[string]bool{
-		"post:before_save": true,
-		"post:after_save":  true,
-		"user:login":       true,
-		"content:render":   true,
-		"head:inject_tags": true,
+		"post:before_save":      true,
+		"post:after_save":       true,
+		"user:login":            true,
+		"content:render":        true,
+		"content:before_render": true,
+		"content:after_render":  true,
+		"head:inject_tags":      true,
+		"head:inject_jsonld":    true,
+		"admin:menu_register":   true,
+		"admin:page_register":   true,
 	}
 	filterHooks = map[string]bool{
-		"content:render":   true,
-		"head:inject_tags": true,
+		"content:render":        true,
+		"content:before_render": true,
+		"content:after_render":  true,
+		"head:inject_tags":      true,
+		"head:inject_jsonld":    true,
 	}
 )
 
@@ -65,6 +73,7 @@ type Manager struct {
 	timeout  time.Duration
 	updateMu sync.Mutex
 	mu       sync.RWMutex
+	db       *sql.DB
 	active   map[string][]loadedPlugin
 }
 
@@ -165,6 +174,7 @@ func (m *Manager) SetActive(ctx context.Context, db *sql.DB, id string, active b
 		return fmt.Errorf("save active plugins: %w", err)
 	}
 	m.mu.Lock()
+	m.db = db
 	m.active = next
 	m.mu.Unlock()
 	return nil
@@ -184,6 +194,7 @@ func (m *Manager) Reload(ctx context.Context, db *sql.DB) error {
 	slices.Sort(ordered)
 	next := m.loadPlugins(ordered)
 	m.mu.Lock()
+	m.db = db
 	m.active = next
 	m.mu.Unlock()
 	return nil
@@ -430,6 +441,7 @@ func (m *Manager) run(parent context.Context, plugin loadedPlugin, hook string, 
 	defer state.Close()
 	state.SetContext(ctx)
 	openSafeLibraries(state)
+	registerSettingsAPI(ctx, state, m.getDB(), plugin.manifest.ID)
 	chunk, err := state.Load(strings.NewReader(string(plugin.source)), plugin.manifest.MainFile)
 	if err != nil {
 		return nil, err
@@ -481,6 +493,7 @@ func validatePluginModule(manifest Manifest, source []byte, timeout time.Duratio
 	defer state.Close()
 	state.SetContext(ctx)
 	openSafeLibraries(state)
+	registerSettingsAPI(ctx, state, nil, manifest.ID)
 	chunk, err := state.Load(strings.NewReader(string(source)), manifest.MainFile)
 	if err != nil {
 		return fmt.Errorf("compile plugin script: %w", err)

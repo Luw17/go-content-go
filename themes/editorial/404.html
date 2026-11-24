@@ -9,18 +9,21 @@
     {{.HeadTags}}
   </head>
   <body>
+    {{$customHeader := render_header}}{{if $customHeader}}{{$customHeader}}{{else}}
     <header class="site-header">
       <a class="brand" href="/" aria-label="{{.Site.Title}} — início">
         {{if .Site.Logo}}<img class="brand-logo" src="{{.Site.Logo}}" alt="{{.Site.Title}}">{{else}}{{.Site.Title}}{{end}}
       </a>
       <div class="site-nav">{{render_menu "primary"}}</div>
     </header>
+    {{end}}
     <main class="site-main not-found">
       <p class="eyebrow">Erro 404 <span aria-hidden="true">✳</span></p>
       <h1>Este texto ainda não foi escrito.</h1>
       <p>O endereço pode estar incorreto ou o conteúdo não está mais disponível.</p>
       <a class="button-link" href="/">Voltar ao início <span aria-hidden="true">↗</span></a>
     </main>
+    {{$customFooter := render_footer}}{{if $customFooter}}{{$customFooter}}{{else}}
     <footer class="site-footer">
       <a class="brand brand-small" href="/">
         {{if .Site.Logo}}<img class="brand-logo" src="{{.Site.Logo}}" alt="{{.Site.Title}}">{{else}}{{.Site.Title}}{{end}}
@@ -28,5 +31,6 @@
       {{if .Site.Tagline}}<p>{{.Site.Tagline}}</p>{{end}}
       {{render_menu "footer"}}
     </footer>
+    {{end}}
   </body>
 </html>

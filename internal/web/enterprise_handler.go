@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Luw17/go-content-go/internal/auth"
+	"github.com/Luw17/go-content-go/internal/config"
 	"github.com/Luw17/go-content-go/internal/content"
 	"github.com/Luw17/go-content-go/internal/database"
 	"github.com/Luw17/go-content-go/internal/media"
@@ -103,9 +104,15 @@ func (h *handler) settings(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to load settings", http.StatusInternalServerError)
 		return
 	}
+	auditFindings := config.AuditPermissions([]config.AuditTarget{
+		{Label: "Diretório de uploads", Path: h.uploadDir},
+		{Label: "Diretório de temas", Path: h.themeDir},
+		{Label: "Diretório de plugins", Path: h.pluginDir},
+		{Label: "Diretório de backups", Path: h.backupDir},
+	})
 	page := adminPage{
-		Mode: "settings", Title: "Configurações", Username: user.Username, CSRFToken: token,
-		SiteSettings: settings, Items: pages, MediaItems: mediaItems,
+		Mode: "settings", Title: "Configurações", Username: user.Username, Role: user.Role, CSRFToken: token,
+		SiteSettings: settings, Items: pages, MediaItems: mediaItems, PermissionFindings: auditFindings,
 	}
 	if r.URL.Query().Get("backup") == "created" {
 		page.Notice = "Backup criado em backups/."
@@ -254,4 +261,108 @@ func (h *handler) optimizeDatabase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/admin/settings?optimized=1", http.StatusSeeOther)
+}
+
+
+func (h *handler) securityPage(w http.ResponseWriter, r *http.Request) {
+	user, authenticated, err := h.currentUser(r)
+	if err != nil {
+		http.Error(w, "failed to validate session", http.StatusInternalServerError)
+		return
+	}
+	if !authenticated {
+		http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
+		return
+	}
+	token, err := issueCSRFToken(w, r)
+	if err != nil {
+		http.Error(w, "failed to prepare security page", http.StatusInternalServerError)
+		return
+	}
+	var secret, uri string
+	if !user.TOTPEnabled {
+		secret, err = auth.GenerateTOTPSecret()
+		if err != nil {
+			log.Printf("generate TOTP secret: %v", err)
+			http.Error(w, "Não foi possível preparar a configuração de 2FA.", http.StatusInternalServerError)
+			return
+		}
+		settings, _ := siteconfig.Load(r.Context(), h.db)
+		uri = auth.TOTPProvisioningURI(settings.Title, user.Username, secret)
+	}
+	page := adminPage{
+		Mode:        "security",
+		Title:       "Segurança da Conta (2FA)",
+		Username:    user.Username,
+		Role:        user.Role,
+		CSRFToken:   token,
+		TOTPEnabled: user.TOTPEnabled,
+		TOTPSecret:  secret,
+		TOTPURI:     uri,
+	}
+	switch r.URL.Query().Get("notice") {
+	case "enabled":
+		page.Notice = "Autenticação de dois fatores (2FA) ativada com sucesso."
+	case "disabled":
+		page.Notice = "Autenticação de dois fatores (2FA) desativada."
+	}
+	if r.URL.Query().Get("error") == "invalid" {
+		page.Error = "Código de 6 dígitos inválido. Confira o aplicativo autenticador e tente novamente."
+	}
+	h.renderAdmin(w, page)
+}
+
+func (h *handler) enableTOTP(w http.ResponseWriter, r *http.Request) {
+	user, authenticated, err := h.currentUser(r)
+	if err != nil {
+		http.Error(w, "failed to validate session", http.StatusInternalServerError)
+		return
+	}
+	if !authenticated {
+		http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
+		return
+	}
+	if err := parseForm(w, r); err != nil {
+		http.Error(w, "Formulário inválido.", http.StatusBadRequest)
+		return
+	}
+	if !validCSRFToken(r) {
+		http.Error(w, "A sessão do formulário expirou.", http.StatusForbidden)
+		return
+	}
+	if err := auth.EnableTOTP(r.Context(), h.db, user.ID, r.FormValue("totp_secret"), r.FormValue("totp_code")); errors.Is(err, auth.ErrInvalidTOTP) {
+		http.Redirect(w, r, "/admin/security?error=invalid", http.StatusSeeOther)
+		return
+	} else if err != nil {
+		log.Printf("enable TOTP for user %d: %v", user.ID, err)
+		http.Error(w, "Não foi possível ativar o 2FA.", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/admin/security?notice=enabled", http.StatusSeeOther)
+}
+
+func (h *handler) disableTOTP(w http.ResponseWriter, r *http.Request) {
+	user, authenticated, err := h.currentUser(r)
+	if err != nil {
+		http.Error(w, "failed to validate session", http.StatusInternalServerError)
+		return
+	}
+	if !authenticated {
+		http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
+		return
+	}
+	if err := parseForm(w, r); err != nil {
+		http.Error(w, "Formulário inválido.", http.StatusBadRequest)
+		return
+	}
+	if !validCSRFToken(r) {
+		http.Error(w, "A sessão do formulário expirou.", http.StatusForbidden)
+		return
+	}
+	if err := auth.DisableTOTP(r.Context(), h.db, user.ID); err != nil {
+		log.Printf("disable TOTP for user %d: %v", user.ID, err)
+		http.Error(w, "Não foi possível desativar o 2FA.", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/admin/security?notice=disabled", http.StatusSeeOther)
 }

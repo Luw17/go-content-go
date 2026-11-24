@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	stdhtml "html"
@@ -13,6 +14,8 @@ import (
 	"time"
 
 	"github.com/Luw17/go-content-go/internal/auth"
+	"github.com/Luw17/go-content-go/internal/builder"
+	"github.com/Luw17/go-content-go/internal/config"
 	"github.com/Luw17/go-content-go/internal/content"
 	"github.com/Luw17/go-content-go/internal/media"
 	"github.com/Luw17/go-content-go/internal/navigation"
@@ -20,6 +23,7 @@ import (
 	"github.com/Luw17/go-content-go/internal/seo"
 	"github.com/Luw17/go-content-go/internal/siteconfig"
 	themeengine "github.com/Luw17/go-content-go/themes"
+	"github.com/microcosm-cc/bluemonday"
 )
 
 type adminPage struct {
@@ -53,6 +57,21 @@ type adminPage struct {
 	MenuPages          []content.Item
 	MenuID             int64
 	PickerMode         string
+	Layouts            []builder.Layout
+	Layout             builder.Layout
+	BuilderPresets     []builder.StarterPreset
+	BuilderPreview     template.HTML
+	FormSubmissions    []builder.FormSubmission
+	SiteSections       []builder.SiteSection
+	SelectedSection    builder.SiteSection
+	PluginMenus        []plugins.AdminMenuItem
+	PluginManifest     plugins.Manifest
+	PluginPageHTML     template.HTML
+	PluginSettings     []pluginSettingRow
+	TOTPEnabled        bool
+	TOTPSecret         string
+	TOTPURI            string
+	PermissionFindings []config.PermissionFinding
 }
 
 type publicItem struct {
@@ -65,17 +84,19 @@ type publicItem struct {
 var publicHTMLTagPattern = regexp.MustCompile(`<[^>]*>`)
 
 type publicHomeData struct {
-	Theme    string
-	Site     siteconfig.Settings
-	Posts    []publicItem
-	HeadTags template.HTML
+	Theme       string
+	Site        siteconfig.Settings
+	Posts       []publicItem
+	HeadTags    template.HTML
+	BuilderHTML template.HTML
 }
 
 type publicContentData struct {
-	Theme    string
-	Site     siteconfig.Settings
-	Item     publicItem
-	HeadTags template.HTML
+	Theme       string
+	Site        siteconfig.Settings
+	Item        publicItem
+	HeadTags    template.HTML
+	BuilderHTML template.HTML
 }
 
 type publicNotFoundData struct {
@@ -197,6 +218,15 @@ func (h *handler) editForm(w http.ResponseWriter, r *http.Request, contentType s
 		http.Error(w, "failed to load categories", http.StatusInternalServerError)
 		return
 	}
+	var layouts []builder.Layout
+	if contentType == content.TypePage {
+		layouts, err = h.builder.ListLayouts(r.Context())
+		if err != nil {
+			log.Printf("load page layouts: %v", err)
+			http.Error(w, "failed to load layouts", http.StatusInternalServerError)
+			return
+		}
+	}
 	token, err := issueCSRFToken(w, r)
 	if err != nil {
 		http.Error(w, "failed to prepare editor", http.StatusInternalServerError)
@@ -227,6 +257,7 @@ func (h *handler) editForm(w http.ResponseWriter, r *http.Request, contentType s
 		Categories:         categories,
 		SelectedCategories: selected,
 		TagInput:           strings.Join(item.Tags, ", "),
+		Layouts:            layouts,
 	}
 	h.renderAdmin(w, page)
 }
@@ -274,6 +305,14 @@ func (h *handler) saveContent(w http.ResponseWriter, r *http.Request, contentTyp
 		http.Error(w, "invalid parent category", http.StatusBadRequest)
 		return
 	}
+	layoutID, err := optionalID(r.FormValue("layout_id"))
+	if err != nil {
+		http.Error(w, "invalid layout selection", http.StatusBadRequest)
+		return
+	}
+	if contentType != content.TypePage {
+		layoutID = 0
+	}
 	input := content.Input{
 		ID:                  id,
 		Type:                contentType,
@@ -291,6 +330,7 @@ func (h *handler) saveContent(w http.ResponseWriter, r *http.Request, contentTyp
 		TwitterCard:         r.FormValue("twitter_card"),
 		SchemaType:          r.FormValue("schema_type"),
 		Noindex:             r.FormValue("noindex") == "1" || r.FormValue("noindex") == "true",
+		LayoutID:            layoutID,
 		CategoryIDs:         categoryIDs,
 		NewCategory:         r.FormValue("new_category"),
 		NewCategoryParentID: parentID,
@@ -363,13 +403,38 @@ func contentHookPayload(input content.Input, authorID int64) map[string]any {
 	}
 }
 
+var publicAfterRenderPolicy = bluemonday.UGCPolicy()
+
 func (h *handler) filteredMarkdown(r *http.Request, source string) string {
-	filtered, ok := h.plugins.ApplyFilters(r.Context(), "content:render", source).(string)
+	current := source
+	if before, ok := h.plugins.ApplyFilters(r.Context(), "content:before_render", current).(string); ok {
+		current = before
+	} else {
+		log.Printf("plugin filter content:before_render returned a non-string value; preserving previous Markdown")
+	}
+	filtered, ok := h.plugins.ApplyFilters(r.Context(), "content:render", current).(string)
 	if !ok {
-		log.Printf("plugin filter content:render returned a non-string value; preserving original Markdown")
-		return source
+		log.Printf("plugin filter content:render returned a non-string value; preserving previous Markdown")
+		return current
 	}
 	return filtered
+}
+
+func (h *handler) renderPublicMarkdown(r *http.Request, source string) (string, error) {
+	md := h.filteredMarkdown(r, source)
+	rendered, err := content.RenderMarkdown(md)
+	if err != nil {
+		return "", err
+	}
+	after, ok := h.plugins.ApplyFilters(r.Context(), "content:after_render", rendered).(string)
+	if !ok {
+		log.Printf("plugin filter content:after_render returned a non-string value; preserving rendered HTML")
+		return rendered, nil
+	}
+	if after != rendered {
+		return publicAfterRenderPolicy.Sanitize(after), nil
+	}
+	return rendered, nil
 }
 
 func (h *handler) renderValidationError(w http.ResponseWriter, r *http.Request, input content.Input, message string) {
@@ -418,6 +483,11 @@ func (h *handler) renderValidationError(w http.ResponseWriter, r *http.Request, 
 		TwitterCard:    input.TwitterCard,
 		SchemaType:     input.SchemaType,
 		Noindex:        input.Noindex,
+		LayoutID:       input.LayoutID,
+	}
+	var layouts []builder.Layout
+	if input.Type == content.TypePage {
+		layouts, _ = h.builder.ListLayouts(r.Context())
 	}
 	selected := make(map[int64]bool)
 	for _, id := range input.CategoryIDs {
@@ -437,6 +507,7 @@ func (h *handler) renderValidationError(w http.ResponseWriter, r *http.Request, 
 		SelectedCategories: selected,
 		TagInput:           input.Tags,
 		NewCategory:        input.NewCategory,
+		Layouts:            layouts,
 		Error:              message,
 	}, http.StatusUnprocessableEntity)
 }
@@ -678,15 +749,60 @@ func (h *handler) publicHome(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to load site", http.StatusInternalServerError)
 		return
 	}
+	if homeLayout, hasHomeLayout, err := h.builder.ActiveHomepageLayout(r.Context()); err != nil {
+		log.Printf("load active homepage layout: %v", err)
+		http.Error(w, "failed to load site", http.StatusInternalServerError)
+		return
+	} else if hasHomeLayout {
+		builderHTML, err := builder.RenderBlocks(r.Context(), homeLayout.Blocks, builder.RenderContext{
+			DB:              h.db,
+			PagePath:        "/",
+			SubmittedFormID: r.URL.Query().Get("form_submitted"),
+			ErrorFormID:     r.URL.Query().Get("form_error"),
+			FilterMarkdown: func(md string) string {
+				return h.filteredMarkdown(r, md)
+			},
+		})
+		if err != nil {
+			log.Printf("render active homepage layout %d: %v", homeLayout.ID, err)
+			http.Error(w, "failed to render site", http.StatusInternalServerError)
+			return
+		}
+		seoParams := seo.Params{
+			Type: seo.TypeHome,
+		}
+		h.renderTheme(w, r, "index.html", http.StatusOK, seoParams, func(themeName string, headTags template.HTML, site siteconfig.Settings) any {
+			return publicHomeData{Theme: themeName, Site: site, HeadTags: headTags, BuilderHTML: builderHTML}
+		})
+		return
+	}
 	if settings.ShowOnFront == siteconfig.FrontPage {
 		frontPage, err := content.PublishedPageByID(r.Context(), h.db, settings.PageOnFront)
 		if err == nil {
-			markdown := h.filteredMarkdown(r, frontPage.Content)
-			rendered, err := content.RenderMarkdown(markdown)
+			rendered, err := h.renderPublicMarkdown(r, frontPage.Content)
 			if err != nil {
 				log.Printf("render front page %d: %v", frontPage.ID, err)
 				http.Error(w, "failed to render site", http.StatusInternalServerError)
 				return
+			}
+			var builderHTML template.HTML
+			if frontPage.LayoutID > 0 {
+				if layout, lerr := h.builder.GetLayout(r.Context(), frontPage.LayoutID); lerr == nil {
+					builderHTML, err = builder.RenderBlocks(r.Context(), layout.Blocks, builder.RenderContext{
+						DB:              h.db,
+						PagePath:        "/",
+						SubmittedFormID: r.URL.Query().Get("form_submitted"),
+						ErrorFormID:     r.URL.Query().Get("form_error"),
+						FilterMarkdown: func(md string) string {
+							return h.filteredMarkdown(r, md)
+						},
+					})
+					if err != nil {
+						log.Printf("render front page layout %d: %v", frontPage.LayoutID, err)
+						http.Error(w, "failed to render site", http.StatusInternalServerError)
+						return
+					}
+				}
 			}
 			public := newPublicItem(frontPage, rendered)
 			seoParams := seo.Params{
@@ -695,7 +811,7 @@ func (h *handler) publicHome(w http.ResponseWriter, r *http.Request) {
 				FallbackSummary: public.Summary,
 			}
 			h.renderTheme(w, r, "page.html", http.StatusOK, seoParams, func(themeName string, headTags template.HTML, site siteconfig.Settings) any {
-				return publicContentData{Theme: themeName, Site: site, Item: public, HeadTags: headTags}
+				return publicContentData{Theme: themeName, Site: site, Item: public, HeadTags: headTags, BuilderHTML: builderHTML}
 			})
 			return
 		}
@@ -717,8 +833,7 @@ func (h *handler) publicHome(w http.ResponseWriter, r *http.Request) {
 		if item.Type != content.TypePost {
 			continue
 		}
-		markdown := h.filteredMarkdown(r, item.Content)
-		rendered, err := content.RenderMarkdown(markdown)
+		rendered, err := h.renderPublicMarkdown(r, item.Content)
 		if err != nil {
 			log.Printf("render public post %d: %v", item.ID, err)
 			http.Error(w, "failed to render site", http.StatusInternalServerError)
@@ -750,8 +865,7 @@ func (h *handler) publicContent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to load content", http.StatusInternalServerError)
 		return
 	}
-	markdown := h.filteredMarkdown(r, item.Content)
-	rendered, err := content.RenderMarkdown(markdown)
+	rendered, err := h.renderPublicMarkdown(r, item.Content)
 	if err != nil {
 		log.Printf("render public content %d: %v", item.ID, err)
 		http.Error(w, "failed to render content", http.StatusInternalServerError)
@@ -763,6 +877,25 @@ func (h *handler) publicContent(w http.ResponseWriter, r *http.Request) {
 		templateName = "single.html"
 		pageType = seo.TypePost
 	}
+	var builderHTML template.HTML
+	if item.Type == content.TypePage && item.LayoutID > 0 {
+		if layout, lerr := h.builder.GetLayout(r.Context(), item.LayoutID); lerr == nil {
+			builderHTML, err = builder.RenderBlocks(r.Context(), layout.Blocks, builder.RenderContext{
+				DB:              h.db,
+				PagePath:        "/" + item.Slug,
+				SubmittedFormID: r.URL.Query().Get("form_submitted"),
+				ErrorFormID:     r.URL.Query().Get("form_error"),
+				FilterMarkdown: func(md string) string {
+					return h.filteredMarkdown(r, md)
+				},
+			})
+			if err != nil {
+				log.Printf("render page layout %d: %v", item.LayoutID, err)
+				http.Error(w, "failed to render content", http.StatusInternalServerError)
+				return
+			}
+		}
+	}
 	public := newPublicItem(item, rendered)
 	seoParams := seo.Params{
 		Type:            pageType,
@@ -770,7 +903,7 @@ func (h *handler) publicContent(w http.ResponseWriter, r *http.Request) {
 		FallbackSummary: public.Summary,
 	}
 	h.renderTheme(w, r, templateName, http.StatusOK, seoParams, func(themeName string, headTags template.HTML, site siteconfig.Settings) any {
-		return publicContentData{Theme: themeName, Site: site, Item: public, HeadTags: headTags}
+		return publicContentData{Theme: themeName, Site: site, Item: public, HeadTags: headTags, BuilderHTML: builderHTML}
 	})
 }
 
@@ -795,6 +928,9 @@ func (h *handler) renderAdmin(w http.ResponseWriter, page adminPage) {
 }
 
 func (h *handler) renderAdminStatus(w http.ResponseWriter, page adminPage, status int) {
+	if len(page.PluginMenus) == 0 && h.plugins != nil {
+		page.PluginMenus = h.plugins.AdminMenus(context.Background())
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "no-store")

@@ -10,12 +10,24 @@
     {{.HeadTags}}
   </head>
   <body>
+    {{$customHeader := render_header}}{{if $customHeader}}{{$customHeader}}{{else}}
     <header class="site-header">
       <a class="brand" href="/" aria-label="{{.Site.Title}} — início">
         {{if .Site.Logo}}<img class="brand-logo" src="{{.Site.Logo}}" alt="{{.Site.Title}}">{{else}}{{.Site.Title}}{{end}}
       </a>
       <div class="site-nav">{{render_menu "primary"}}</div>
     </header>
+    {{end}}
+    {{if .BuilderHTML}}
+      <main class="site-main builder-main">
+        {{.BuilderHTML}}
+        {{if .Item.Content}}
+          <article class="article builder-page-extra">
+            <div class="article-content">{{.Item.HTML}}</div>
+          </article>
+        {{end}}
+      </main>
+    {{else}}
     <main class="site-main reading-main">
       <a class="back-link" href="/">← Início</a>
       <article class="article">
@@ -31,6 +43,8 @@
         <div class="article-content">{{.Item.HTML}}</div>
       </article>
     </main>
+    {{end}}
+    {{$customFooter := render_footer}}{{if $customFooter}}{{$customFooter}}{{else}}
     <footer class="site-footer">
       <a class="brand brand-small" href="/">
         {{if .Site.Logo}}<img class="brand-logo" src="{{.Site.Logo}}" alt="{{.Site.Title}}">{{else}}{{.Site.Title}}{{end}}
@@ -38,5 +52,6 @@
       {{if .Site.Tagline}}<p>{{.Site.Tagline}}</p>{{end}}
       {{render_menu "footer"}}
     </footer>
+    {{end}}
   </body>
 </html>

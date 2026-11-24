@@ -167,16 +167,16 @@ Este roadmap detalha as fases de desenvolvimento focadas em transformar o core r
 
     [x] Restringir permissões do SQLite e uploads e bloquear rotas de arquivos/diretórios internos.
 
-    [ ] Implementar autenticação de dois fatores (2FA) nativa.
+    [x] Implementar autenticação de dois fatores (2FA) nativa.
 
-    [ ] Completar auditoria de permissões de arquivo em todos os diretórios e plataformas suportados.
+    [x] Completar auditoria de permissões de arquivo em todos os diretórios e plataformas suportados.
 
 🏆 Fase 8: GCG v2.0 Release Candidate
 
     Goal: Consolidar todas as features, realizar testes de integração e lançar a versão 2.0.
 
-    [ ] Testes de carga simulando 10.000 posts e 1.000 usuários simultâneos com cache de memória ativo.
+    [x] Testes de carga simulando 10.000 posts e 1.000 usuários simultâneos com cache de memória ativo.
 
-    [ ] Validação da documentação final de temas e plugins.
+    [x] Validação da documentação final de temas e plugins.
 
     [ ] Lançamento da versão 2.0.0 estável.

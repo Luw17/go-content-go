@@ -273,7 +273,7 @@ func (h *handler) mediaPicker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mode := r.URL.Query().Get("mode")
-	if mode != "featured" && mode != "inline" {
+	if mode != "featured" && mode != "inline" && mode != "og" {
 		http.Error(w, "Modo de seleção de mídia inválido.", http.StatusBadRequest)
 		return
 	}
