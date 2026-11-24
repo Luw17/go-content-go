@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"html/template"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Luw17/go-content-go/internal/builder"
 	"github.com/Luw17/go-content-go/internal/seo"
 	"github.com/Luw17/go-content-go/internal/siteconfig"
 	themeengine "github.com/Luw17/go-content-go/themes"
@@ -215,9 +217,34 @@ func (h *handler) renderTheme(w http.ResponseWriter, r *http.Request, templateNa
 		http.Error(w, "Não foi possível carregar o site.", http.StatusInternalServerError)
 		return
 	}
+	sectionScope := builder.ScopeAll
+	sectionSlug := ""
+	switch seoParams.Type {
+	case seo.TypeHome:
+		sectionScope = builder.ScopeHome
+	case seo.TypePost:
+		sectionScope = builder.ScopePosts
+		if seoParams.Item != nil {
+			sectionSlug = seoParams.Item.Slug
+		}
+	case seo.TypePage:
+		sectionScope = builder.ScopePages
+		if r.URL.Path == "/" {
+			sectionScope = builder.ScopeHome
+		}
+		if seoParams.Item != nil {
+			sectionSlug = seoParams.Item.Slug
+		}
+	}
 	active, templates, err := h.themes.ResolveWithFuncs(configured, template.FuncMap{
 		"render_menu": func(location string) (template.HTML, error) {
 			return h.menus.RenderHTML(r.Context(), location)
+		},
+		"render_header": func() (template.HTML, error) {
+			return h.renderVisualSection(r, builder.SectionHeader, sectionScope, sectionSlug, settings)
+		},
+		"render_footer": func() (template.HTML, error) {
+			return h.renderVisualSection(r, builder.SectionFooter, sectionScope, sectionSlug, settings)
 		},
 	})
 	if err != nil {
@@ -243,13 +270,19 @@ func (h *handler) renderTheme(w http.ResponseWriter, r *http.Request, templateNa
 		contextMap["featured_image"] = seoParams.Item.FeaturedImage
 	}
 	pluginTags := h.filteredHeadTags(r, contextMap)
+	pluginJSONLD := h.filteredJSONLD(r, contextMap)
 
-	var headTags template.HTML
+	var headBuilder strings.Builder
+	headBuilder.WriteString(string(seoHTML))
 	if pluginTags != "" {
-		headTags = template.HTML(string(seoHTML) + "\n" + string(pluginTags))
-	} else {
-		headTags = seoHTML
+		headBuilder.WriteByte('\n')
+		headBuilder.WriteString(string(pluginTags))
 	}
+	if pluginJSONLD != "" {
+		headBuilder.WriteByte('\n')
+		headBuilder.WriteString(string(pluginJSONLD))
+	}
+	headTags := template.HTML(headBuilder.String())
 
 	var rendered bytes.Buffer
 	if err := templates.ExecuteTemplate(&rendered, templateName, data(active, headTags, settings)); err != nil {
@@ -275,4 +308,28 @@ func (h *handler) filteredHeadTags(r *http.Request, pageContext map[string]any) 
 		OnElements("meta", "link")
 	policy.AllowURLSchemes("http", "https")
 	return template.HTML(policy.Sanitize(raw))
+}
+
+
+func (h *handler) filteredJSONLD(r *http.Request, pageContext map[string]any) template.HTML {
+	raw, ok := h.plugins.ApplyFilters(r.Context(), "head:inject_jsonld", "", pageContext).(string)
+	if !ok {
+		log.Printf("plugin filter head:inject_jsonld returned a non-string value; discarding")
+		return ""
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	var parsed any
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		log.Printf("plugin filter head:inject_jsonld returned invalid JSON: %v", err)
+		return ""
+	}
+	encoded, err := json.Marshal(parsed)
+	if err != nil {
+		return ""
+	}
+	safe := strings.ReplaceAll(string(encoded), "</", `<\/`)
+	return template.HTML(`<script type="application/ld+json">` + safe + `</script>`)
 }

@@ -128,7 +128,8 @@ func adminRequestBodyLimit(requestPath string, mediaMax int64) int64 {
 		return mediaMax + (64 << 10)
 	case "/admin/appearance/install", "/admin/themes/install", "/admin/plugins/install":
 		return packagezip.MaxArchiveSize + (64 << 10)
-	case "/admin/posts/save", "/admin/pages/save", "/admin/preview":
+	case "/admin/posts/save", "/admin/pages/save", "/admin/preview",
+		"/admin/builder/save", "/admin/builder/preview", "/admin/appearance/sections/save":
 		return maxContentFormSize
 	default:
 		return maxFormSize

@@ -17,11 +17,17 @@
         <a href="/admin/posts">Posts</a>
         <a href="/admin/pages">Páginas</a>
         <a href="/admin/categories">Categorias</a>
+        <a href="/admin/builder">Construtor Visual</a>
         <a href="/admin/media">Mídias</a>
         <a href="/admin/appearance">Aparência</a>
         <a href="/admin/appearance/menus">Menus</a>
+        <a href="/admin/appearance/sections">Cabeçalhos e Rodapés</a>
         <a href="/admin/plugins">Plugins</a>
+        {{range .PluginMenus}}
+          <a href="{{.Path}}">↳ {{.Label}}</a>
+        {{end}}
         <a href="/admin/users">Usuários</a>
+        <a href="/admin/security">Segurança (2FA)</a>
         <a href="/admin/settings">Configurações</a>
       </nav>
     </aside>
@@ -110,7 +116,7 @@
 
                 <div class="form-grid">
                   <div>
-                    <label for="seo_title">Título SEO <span class="muted">(ideal: ~60 caracteres)</span></label>
+                    <label for="seo_title">Título SEO <span id="seo-title-counter" class="muted">(0 / ~60 caracteres)</span></label>
                     <input id="seo_title" name="seo_title" type="text" maxlength="200" value="{{.Item.SEOTitle}}" placeholder="Deixe em branco para usar o título acima">
                   </div>
                   <div>
@@ -119,7 +125,7 @@
                   </div>
                 </div>
 
-                <label for="seo_description">Meta Descrição <span class="muted">(ideal: 120–160 caracteres)</span></label>
+                <label for="seo_description">Meta Descrição <span id="seo-desc-counter" class="muted">(0 / ~160 caracteres)</span></label>
                 <textarea id="seo_description" name="seo_description" rows="3" maxlength="500" placeholder="Resumo atrativo para os mecanismos de busca">{{.Item.SEODescription}}</textarea>
 
                 <div class="form-grid">
@@ -137,6 +143,8 @@
                   <div>
                     <label for="og_image">Imagem de Compartilhamento (OG Image)</label>
                     <input id="og_image" name="og_image" type="text" maxlength="2048" value="{{.Item.OGImage}}" placeholder="/uploads/… ou https://…">
+                    <button class="button" type="button" data-picker-open="og"
+                      hx-get="/admin/media/picker?mode=og" hx-target="#media-picker-content" hx-swap="innerHTML">Selecionar imagem OG</button>
                   </div>
                   <div>
                     <label for="twitter_card">Cartão do Twitter / X</label>
@@ -214,6 +222,18 @@
                   </select>
                   <label for="tags">Tags <span class="muted">separadas por vírgula</span></label>
                   <input id="tags" name="tags" type="text" maxlength="1000" value="{{.TagInput}}" placeholder="produto, novidades">
+                </section>
+              {{else if eq .ContentType "page"}}
+                <section class="editor-panel">
+                  <h2>Layout Visual (Template)</h2>
+                  <label for="layout_id">Usar layout modular</label>
+                  <select id="layout_id" name="layout_id">
+                    <option value="0">Layout padrão da página (Markdown)</option>
+                    {{range .Layouts}}
+                      <option value="{{.ID}}" {{if eq $.Item.LayoutID .ID}}selected{{end}}>{{.Name}}</option>
+                    {{end}}
+                  </select>
+                  <p class="muted">Aplique um layout criado no <a href="/admin/builder">Construtor Visual</a> nesta página.</p>
                 </section>
               {{end}}
             </aside>
@@ -388,20 +408,30 @@
                   <p class="muted">Hooks: {{range $index, $hook := .Hooks}}{{if $index}}, {{end}}{{$hook}}{{else}}nenhum{{end}}</p>
                 </div>
                 {{if .Active}}
-                  <strong class="plugin-active">Ativo</strong>
-                  <form method="post" action="/admin/plugins/{{.ID}}/deactivate">
-                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-                    <button class="button button-quiet" type="submit">Desativar</button>
-                  </form>
-                  {{if not .Valid}}<span class="error" role="status">Arquivos inválidos; desative este plugin.</span>{{end}}
+                  <div class="plugin-card-footer">
+                    <strong class="plugin-active">Ativo</strong>
+                    <div class="plugin-card-actions">
+                      <a class="button" href="/admin/plugin/{{.ID}}">Configurações</a>
+                      <form method="post" action="/admin/plugins/{{.ID}}/deactivate">
+                        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                        <button class="button button-quiet" type="submit">Desativar</button>
+                      </form>
+                    </div>
+                    {{if not .Valid}}<span class="error" role="status">Arquivos inválidos; desative este plugin.</span>{{end}}
+                  </div>
                 {{else if not .Valid}}
                   <span class="error" role="status">Manifesto ou arquivo principal inválido</span>
                 {{else}}
-                  <strong class="muted">Inativo</strong>
-                  <form method="post" action="/admin/plugins/{{.ID}}/activate">
-                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-                    <button class="button button-primary" type="submit">Ativar</button>
-                  </form>
+                  <div class="plugin-card-footer">
+                    <strong class="muted">Inativo</strong>
+                    <div class="plugin-card-actions">
+                      <form method="post" action="/admin/plugins/{{.ID}}/activate">
+                        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                        <button class="button button-primary" type="submit">Ativar</button>
+                      </form>
+                      <a class="button button-quiet" href="/admin/plugin/{{.ID}}">Configurações</a>
+                    </div>
+                  </div>
                 {{end}}
               </article>
             {{else}}
@@ -572,6 +602,94 @@
               <button class="button" type="submit">Otimizar banco de dados</button>
             </form>
           </section>
+          <section class="welcome-card settings-card">
+            <h2>Auditoria de permissões de arquivos</h2>
+            <p>Verificação automática dos diretórios essenciais do CMS.</p>
+            <div class="content-list">
+              {{range .PermissionFindings}}
+                <article class="content-row">
+                  <div>
+                    <strong>{{.Path}}</strong>
+                    <p class="muted">{{.Detail}}</p>
+                  </div>
+                  <span class="status-badge {{if eq .Status "ok"}}status-published{{end}}">{{.Status}}{{if .Mode}} ({{.Mode}}){{end}}</span>
+                </article>
+              {{end}}
+            </div>
+          </section>
+        {{else if eq .Mode "security"}}
+          <div class="page-heading">
+            <div><p class="eyebrow">Segurança</p><h1>Autenticação de Dois Fatores (2FA)</h1></div>
+          </div>
+          <section class="welcome-card settings-card">
+            {{if .TOTPEnabled}}
+              <h2>2FA ativo na sua conta</h2>
+              <p>Sua conta <strong>{{.Username}}</strong> exige um código TOTP de 6 dígitos no login.</p>
+              <form method="post" action="/admin/security/totp/disable">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <button class="button button-danger" type="submit">Desativar 2FA</button>
+              </form>
+            {{else}}
+              <h2>Ativar 2FA (TOTP)</h2>
+              <p>Adicione a chave abaixo no seu aplicativo autenticador (Google Authenticator, Authy, Bitwarden ou 1Password) e informe o código gerado para confirmar.</p>
+              <p><strong>Chave secreta (Base32):</strong> <code>{{.TOTPSecret}}</code></p>
+              <p class="muted">URI de provisionamento: <code>{{.TOTPURI}}</code></p>
+              <form class="editor-form" method="post" action="/admin/security/totp/enable">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <input type="hidden" name="totp_secret" value="{{.TOTPSecret}}">
+                <label for="totp-code">Código de 6 dígitos do aplicativo</label>
+                <input id="totp-code" name="totp_code" type="text" inputmode="numeric" maxlength="8" placeholder="000000" required>
+                <button class="button button-primary" type="submit">Confirmar e ativar 2FA</button>
+              </form>
+            {{end}}
+          </section>
+        {{else if eq .Mode "plugin-page"}}
+          <div class="page-heading">
+            <div><p class="eyebrow">Plugin: {{.PluginManifest.ID}}</p><h1>{{.Title}}</h1></div>
+            <a class="button" href="/admin/plugins">← Voltar para plugins</a>
+          </div>
+          {{if .PluginPageHTML}}
+            <section class="welcome-card settings-card">
+              {{.PluginPageHTML}}
+            </section>
+          {{end}}
+          <section class="welcome-card settings-card">
+            <h2>Configurações isoladas do plugin</h2>
+            <p class="muted">As chaves salvas aqui ficam acessíveis exclusivamente a este plugin via <code>settings.get(key)</code> em Lua.</p>
+            <form class="editor-form" method="post" action="/admin/plugin/{{.PluginManifest.ID}}/settings">
+              <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+              <label for="setting-key">Chave</label>
+              <input id="setting-key" name="setting_key" type="text" maxlength="100" pattern="[a-zA-Z0-9][a-zA-Z0-9._:-]*" placeholder="Ex.: schema_type" required>
+              <label for="setting-value">Valor</label>
+              <textarea id="setting-value" name="setting_value" rows="3" maxlength="16384" placeholder="Valor da configuração"></textarea>
+              <button class="button button-primary" type="submit">Salvar configuração</button>
+            </form>
+            {{if .PluginSettings}}
+              <div class="content-list">
+                {{range .PluginSettings}}
+                  <article class="content-row">
+                    <div>
+                      <strong><code>{{.Key}}</code></strong>
+                      <p class="muted">{{.Value}}</p>
+                    </div>
+                    <form method="post" action="/admin/plugin/{{$.PluginManifest.ID}}/settings/delete">
+                      <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                      <input type="hidden" name="setting_key" value="{{.Key}}">
+                      <button class="button button-danger" type="submit">Remover</button>
+                    </form>
+                  </article>
+                {{end}}
+              </div>
+            {{else}}
+              <p class="empty-state">Nenhuma configuração salva para este plugin.</p>
+            {{end}}
+          </section>
+        {{else if eq .Mode "builder-list"}}
+          {{template "builder-list" .}}
+        {{else if eq .Mode "builder-editor"}}
+          {{template "builder-editor" .}}
+        {{else if eq .Mode "sections"}}
+          {{template "sections-manager" .}}
         {{else if eq .Mode "placeholder"}}
           <div class="page-heading"><div><p class="eyebrow">Administração</p><h1>{{.Title}}</h1></div></div>
           <section class="welcome-card"><p>Esta área será implementada em uma próxima etapa do roadmap.</p></section>

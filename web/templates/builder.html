@@ -1,0 +1,227 @@
+{{define "builder-list"}}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Experiência Visual</p>
+      <h1>Construtor Visual de Páginas</h1>
+    </div>
+    <div class="builder-heading-actions">
+      <a class="button" href="/admin/appearance/sections">Cabeçalhos e Rodapés</a>
+      <a class="button button-primary" href="/admin/builder/new">Novo layout em branco</a>
+    </div>
+  </div>
+  <p class="muted">Crie e gerencie layouts modulares reutilizáveis para a Homepage e para qualquer página do site usando componentes prontos.</p>
+
+  <section class="builder-section-card">
+    <div class="builder-section-title">
+      <h2>Modelos prontos para começar</h2>
+      <span class="muted">Clone um modelo inicial e personalize visualmente</span>
+    </div>
+    <div class="builder-preset-grid">
+      {{range .BuilderPresets}}
+        <article class="welcome-card builder-preset-card">
+          <p class="eyebrow">Modelo</p>
+          <h3>{{.Name}}</h3>
+          <p class="muted">{{.Description}}</p>
+          <a class="button button-primary" href="/admin/builder/new?preset={{.ID}}">Usar este modelo</a>
+        </article>
+      {{end}}
+    </div>
+  </section>
+
+  <section class="builder-section-card">
+    <div class="builder-section-title">
+      <h2>Layouts salvos</h2>
+      <form method="post" action="/admin/builder/homepage/clear">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+        <button class="button button-quiet" type="submit">Usar homepage clássica do tema</button>
+      </form>
+    </div>
+    {{if .Layouts}}
+      <div class="builder-layout-grid">
+        {{range .Layouts}}
+          <article class="welcome-card builder-layout-card">
+            <div class="builder-layout-meta">
+              <div class="builder-badges">
+                {{if .IsHomepage}}<span class="status-badge status-published">Homepage ativa</span>{{end}}
+                <span class="status-badge">{{len .Blocks}} bloco{{if ne (len .Blocks) 1}}s{{end}}</span>
+              </div>
+              <h3>{{.Name}}</h3>
+              <p class="muted">/{{.Slug}}</p>
+              {{if .Description}}<p>{{.Description}}</p>{{end}}
+            </div>
+            <div class="builder-card-actions">
+              <a class="button button-primary" href="/admin/builder/{{.ID}}/edit">Abrir editor visual</a>
+              {{if not .IsHomepage}}
+                <form method="post" action="/admin/builder/{{.ID}}/homepage">
+                  <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                  <button class="button" type="submit">Definir como Homepage</button>
+                </form>
+              {{end}}
+              <form method="post" action="/admin/builder/{{.ID}}/duplicate">
+                <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                <button class="button button-quiet" type="submit">Duplicar</button>
+              </form>
+              <form method="post" action="/admin/builder/{{.ID}}/delete">
+                <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                <button class="button button-danger" type="submit">Excluir</button>
+              </form>
+            </div>
+          </article>
+        {{end}}
+      </div>
+    {{else}}
+      <p class="empty-state">Nenhum layout criado ainda. Escolha um modelo acima ou clique em "Novo layout em branco".</p>
+    {{end}}
+  </section>
+
+  <section class="builder-section-card">
+    <div class="builder-section-title">
+      <h2>Envios de formulários</h2>
+      <span class="muted">Mensagens e inscrições capturadas pelo componente Formulário</span>
+    </div>
+    {{if .FormSubmissions}}
+      <div class="submissions-list">
+        {{range .FormSubmissions}}
+          <article class="welcome-card submission-row">
+            <div class="submission-body">
+              <div class="builder-badges">
+                <span class="status-badge">{{.FormID}}</span>
+                <span class="muted">{{.PagePath}}</span>
+              </div>
+              <p><strong>{{if .SenderName}}{{.SenderName}} — {{end}}{{.SenderEmail}}</strong></p>
+              {{if .Message}}<p>{{.Message}}</p>{{end}}
+            </div>
+            <form method="post" action="/admin/builder/submissions/{{.ID}}/delete">
+              <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+              <button class="button button-danger" type="submit">Remover</button>
+            </form>
+          </article>
+        {{end}}
+      </div>
+    {{else}}
+      <p class="empty-state">Nenhum envio de formulário registrado até o momento.</p>
+    {{end}}
+  </section>
+{{end}}
+
+{{define "builder-editor"}}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Construtor Visual</p>
+      <h1>{{if .Layout.ID}}Editar layout{{else}}Novo layout modular{{end}}</h1>
+    </div>
+    <div class="builder-heading-actions">
+      <a class="button" href="/admin/builder">← Voltar para layouts</a>
+      <a class="button" href="/" target="_blank" rel="noreferrer">Ver site ↗</a>
+    </div>
+  </div>
+
+  <form id="builder-form" class="builder-editor-form" method="post" action="/admin/builder/save" data-visual-builder>
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <input type="hidden" name="id" value="{{.Layout.ID}}">
+    <textarea id="builder-blocks-json" name="blocks_json" hidden>{{.Layout.BlocksJSON}}</textarea>
+
+    <section class="editor-panel builder-meta-bar">
+      <div class="builder-meta-fields">
+        <div>
+          <label for="layout-name">Nome do layout</label>
+          <input id="layout-name" name="name" type="text" maxlength="120" value="{{.Layout.Name}}" placeholder="Ex.: Homepage Principal" required>
+        </div>
+        <div>
+          <label for="layout-slug">Slug <span class="muted">(opcional)</span></label>
+          <input id="layout-slug" name="slug" type="text" maxlength="100" value="{{.Layout.Slug}}" placeholder="gerado-automaticamente">
+        </div>
+        <div>
+          <label for="layout-description">Descrição</label>
+          <input id="layout-description" name="description" type="text" maxlength="400" value="{{.Layout.Description}}" placeholder="Para que serve este template reutilizável">
+        </div>
+      </div>
+      <div class="builder-meta-footer">
+        <label class="checkbox-label" for="layout-is-homepage">
+          <input id="layout-is-homepage" type="checkbox" name="is_homepage" value="1" {{if .Layout.IsHomepage}}checked{{end}}>
+          Usar este layout como Homepage ativa do site
+        </label>
+        <div class="builder-meta-actions">
+          <button class="button" type="button" id="builder-refresh-preview"
+            hx-post="/admin/builder/preview" hx-include="#builder-form" hx-target="#builder-live-preview" hx-swap="innerHTML">
+            Atualizar prévia
+          </button>
+          <button class="button button-primary" type="submit">Salvar layout</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="builder-workspace">
+      <aside class="editor-panel builder-palette" aria-label="Componentes disponíveis">
+        <h2>Componentes</h2>
+        <p class="muted">Clique para adicionar ao layout.</p>
+        <div class="builder-palette-list">
+          <button class="builder-palette-btn" type="button" data-builder-add="hero">
+            <strong>Hero Section</strong>
+            <span>Destaque principal com título, botões e imagem</span>
+          </button>
+          <button class="builder-palette-btn" type="button" data-builder-add="posts">
+            <strong>Lista de Posts</strong>
+            <span>Grade dinâmica com artigos publicados</span>
+          </button>
+          <button class="builder-palette-btn" type="button" data-builder-add="features">
+            <strong>Grade de Destaques</strong>
+            <span>Cards de recursos, benefícios ou serviços</span>
+          </button>
+          <button class="builder-palette-btn" type="button" data-builder-add="form">
+            <strong>Formulário</strong>
+            <span>Captura de contato ou assinatura de newsletter</span>
+          </button>
+          <button class="builder-palette-btn" type="button" data-builder-add="rich_text">
+            <strong>Texto / Markdown</strong>
+            <span>Bloco editorial livre com formatação Markdown</span>
+          </button>
+          <button class="builder-palette-btn" type="button" data-builder-add="cta">
+            <strong>Banner CTA</strong>
+            <span>Chamada visual para ação em destaque</span>
+          </button>
+        </div>
+
+        <select id="builder-categories-source" hidden aria-hidden="true">
+          <option value="">Todas as categorias</option>
+          {{range .Categories}}
+            <option value="{{.Slug}}">{{repeat .Depth "— "}}{{.Name}}</option>
+          {{end}}
+        </select>
+        <select id="builder-media-source" hidden aria-hidden="true">
+          <option value="">Sem imagem</option>
+          {{range .MediaItems}}
+            {{if hasPrefix .FileType "image/"}}
+              <option value="{{.Filepath}}">{{.Filename}}</option>
+            {{end}}
+          {{end}}
+        </select>
+      </aside>
+
+      <section class="editor-panel builder-canvas-panel" aria-label="Estrutura visual da página">
+        <div class="builder-canvas-heading">
+          <h2>Estrutura da página</h2>
+          <span class="muted">Arraste ou use as setas para reordenar</span>
+        </div>
+        <div id="builder-canvas" class="builder-canvas"></div>
+      </section>
+
+      <aside class="editor-panel builder-inspector-panel" aria-label="Propriedades do bloco selecionado">
+        <h2>Propriedades do bloco</h2>
+        <div id="builder-inspector" class="builder-inspector">
+          <p class="muted">Selecione um bloco no canvas para editar seus textos, estilos e opções.</p>
+        </div>
+      </aside>
+    </div>
+  </form>
+
+  <section class="editor-panel builder-preview-panel">
+    <div class="builder-canvas-heading">
+      <h2>Pré-visualização renderizada</h2>
+      <span class="muted">Renderização real dos blocos com os posts publicados do site</span>
+    </div>
+    <div id="builder-live-preview" class="builder-live-preview">
+      {{if .BuilderPreview}}{{.BuilderPreview}}{{else}}<p class="empty-state">Adicione blocos ao canvas e clique em "Atualizar prévia".</p>{{end}}
+    </div>
+  </section>
+{{end}}

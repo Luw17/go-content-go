@@ -1,115 +1,58 @@
 {{define "category-editor"}}
-<section class="category-editor">
+<section class="category-editor" data-category-editor>
   <div class="page-heading">
     <div><p class="eyebrow">Taxonomia</p><h1>Categorias</h1></div>
     <button class="button button-primary" id="new-cat-btn" type="button">Nova categoria</button>
   </div>
 
-  <div id="new-cat-form" class="editor-panel" style="display:none">
+  <section id="new-cat-form" class="editor-panel category-form-panel" hidden>
     <h2>Nova categoria</h2>
-    <form id="create-cat-form">
+    <form id="create-cat-form" class="editor-form category-create-form" method="post" action="/admin/categories/save">
+      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
       <label for="cat-name">Nome</label>
-      <input id="cat-name" name="name" type="text" maxlength="100" required>
+      <input id="cat-name" name="name" type="text" maxlength="100" placeholder="Ex.: Tecnologia" required>
+
       <label for="cat-parents">Categorias pai <span class="muted">(opcional, múltiplas)</span></label>
-      <select id="cat-parents" name="parent_ids" multiple size="5">
-        {{range .Categories}}
-        <option value="{{.ID}}">{{repeat .Depth "— "}}{{.Name}}</option>
-        {{end}}
-      </select>
-      <div style="margin-top:.75rem;display:flex;gap:.5rem">
+      {{if .Categories}}
+        <select id="cat-parents" class="category-parents-select" name="parent_ids" multiple size="5">
+          {{range .Categories}}
+            <option value="{{.ID}}">{{repeat .Depth "— "}}{{.Name}}</option>
+          {{end}}
+        </select>
+        <p class="muted">Segure Ctrl (ou Cmd) para selecionar mais de uma categoria pai.</p>
+      {{else}}
+        <p class="muted">Crie a primeira categoria para poder definir hierarquias de categorias pai.</p>
+      {{end}}
+
+      <div class="category-form-actions">
         <button class="button button-primary" type="submit">Criar</button>
         <button class="button" type="button" id="cancel-cat-btn">Cancelar</button>
       </div>
     </form>
-  </div>
+  </section>
 
-  <div class="editor-panel" id="cat-tree-panel">
+  <section class="editor-panel category-tree-panel" id="cat-tree-panel">
+    <h2>Estrutura de categorias</h2>
     <p class="muted">Arraste as categorias para reorganizar. Clique em <strong>Excluir</strong> para remover.</p>
-    <ul id="cat-tree" class="category-tree">
+    <ul id="cat-tree" class="category-tree" data-csrf="{{.CSRFToken}}">
       {{range .Categories}}
-      <li class="cat-item" draggable="true" data-id="{{.ID}}" data-depth="{{.Depth}}">
-        <span class="cat-drag-handle" aria-hidden="true">⠿</span>
-        <span class="cat-name" style="padding-left:{{.Depth}}rem">{{.Name}}</span>
-        <span class="cat-parents muted">
-          {{if .ParentIDs}}
-            ({{len .ParentIDs}} pai{{if gt (len .ParentIDs) 1}}s{{end}})
-          {{end}}
-        </span>
-        <form class="cat-delete-form" method="post" action="/admin/categories/{{.ID}}/delete" style="display:inline">
-          <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-          <button class="button button-quiet" type="submit"
-            onclick="return confirm('Excluir categoria?')">Excluir</button>
-        </form>
-      </li>
+        <li class="cat-item cat-depth-{{.Depth}}" draggable="true" data-id="{{.ID}}" data-depth="{{.Depth}}">
+          <span class="cat-drag-handle" aria-hidden="true">⠿</span>
+          <span class="cat-name">{{.Name}}</span>
+          <span class="cat-parents muted">
+            {{if .ParentIDs}}
+              ({{len .ParentIDs}} pai{{if gt (len .ParentIDs) 1}}s{{end}})
+            {{end}}
+          </span>
+          <form class="cat-delete-form" method="post" action="/admin/categories/{{.ID}}/delete">
+            <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+            <button class="button button-danger" type="submit">Excluir</button>
+          </form>
+        </li>
       {{else}}
-      <li class="muted">Nenhuma categoria criada ainda.</li>
+        <li class="empty-state">Nenhuma categoria criada ainda.</li>
       {{end}}
     </ul>
-  </div>
+  </section>
 </section>
-
-<script>
-(function(){
-  const newBtn    = document.getElementById('new-cat-btn');
-  const cancelBtn = document.getElementById('cancel-cat-btn');
-  const form      = document.getElementById('new-cat-form');
-  const createFrm = document.getElementById('create-cat-form');
-  const tree      = document.getElementById('cat-tree');
-
-  newBtn.addEventListener('click', () => form.style.display = '');
-  cancelBtn.addEventListener('click', () => form.style.display = 'none');
-
-  // Create category via JSON POST
-  createFrm.addEventListener('submit', async e => {
-    e.preventDefault();
-    const name  = createFrm.querySelector('[name=name]').value.trim();
-    const selEl = createFrm.querySelector('[name=parent_ids]');
-    const pids  = selEl ? [...selEl.selectedOptions].map(o => parseInt(o.value)) : [];
-    const csrf  = document.cookie.match(/csrf_token=([^;]+)/);
-    const res   = await fetch('/admin/categories/save', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json',
-                 'X-CSRF-Token': csrf ? csrf[1] : '' },
-      body: JSON.stringify({ name, parent_ids: pids })
-    });
-    if (res.ok) { location.href = '/admin/categories?saved=1'; }
-    else        { alert('Erro ao criar categoria.'); }
-  });
-
-  // Drag-and-drop reorder
-  let dragging = null;
-  tree.addEventListener('dragstart', e => {
-    dragging = e.target.closest('.cat-item');
-    dragging && dragging.classList.add('dragging');
-  });
-  tree.addEventListener('dragend', () => {
-    dragging && dragging.classList.remove('dragging');
-    dragging = null;
-    sendOrder();
-  });
-  tree.addEventListener('dragover', e => {
-    e.preventDefault();
-    const target = e.target.closest('.cat-item');
-    if (target && dragging && target !== dragging) {
-      const rect = target.getBoundingClientRect();
-      if (e.clientY < rect.top + rect.height / 2) {
-        tree.insertBefore(dragging, target);
-      } else {
-        tree.insertBefore(dragging, target.nextSibling);
-      }
-    }
-  });
-
-  function sendOrder() {
-    const order = [...tree.querySelectorAll('.cat-item')].map(el => parseInt(el.dataset.id));
-    const csrf  = document.cookie.match(/csrf_token=([^;]+)/);
-    fetch('/admin/categories/reorder', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json',
-                 'X-CSRF-Token': csrf ? csrf[1] : '' },
-      body: JSON.stringify({ order })
-    });
-  }
-})();
-</script>
 {{end}}

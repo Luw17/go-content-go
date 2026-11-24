@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/Luw17/go-content-go/internal/auth"
+	"github.com/Luw17/go-content-go/internal/builder"
 	"github.com/Luw17/go-content-go/internal/cache"
 	"github.com/Luw17/go-content-go/internal/content"
 	"github.com/Luw17/go-content-go/internal/media"
@@ -42,10 +43,14 @@ type handler struct {
 	templates       *template.Template
 	media           *media.Store
 	menus           *navigation.Store
+	builder         *builder.Store
 	themes          *themeengine.Manager
 	plugins         *plugins.Manager
 	cache           *cache.Cache
 	loginProtection *cache.LoginProtection
+	uploadDir       string
+	themeDir        string
+	pluginDir       string
 	backupDir       string
 }
 
@@ -59,9 +64,10 @@ type Options struct {
 }
 
 type formData struct {
-	CSRFToken string
-	Username  string
-	Error     string
+	CSRFToken   string
+	Username    string
+	Error       string
+	RequireTOTP bool
 }
 
 // NewHandler creates the public HTTP handler using embedded templates and assets.
@@ -110,6 +116,10 @@ func NewHandler(db *sql.DB, options ...Options) (http.Handler, error) {
 	menuStore, err := navigation.NewStore(db)
 	if err != nil {
 		return nil, fmt.Errorf("initialize navigation menus: %w", err)
+	}
+	builderStore, err := builder.NewStore(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize page builder store: %w", err)
 	}
 	themeManager, err := themeengine.New(settings.ThemeDir)
 	if err != nil {
@@ -186,9 +196,14 @@ func NewHandler(db *sql.DB, options ...Options) (http.Handler, error) {
 	if err != nil {
 		return nil, fmt.Errorf("initialize API rate limiter: %w", err)
 	}
+	formLimiter, err := cache.NewLimiter(15, time.Minute, 5, 10000)
+	if err != nil {
+		return nil, fmt.Errorf("initialize form rate limiter: %w", err)
+	}
 	h := &handler{
-		db: db, templates: templates, media: mediaStore, menus: menuStore, themes: themeManager, plugins: pluginManager,
-		cache: responseCache, loginProtection: loginProtection, backupDir: settings.BackupDir,
+		db: db, templates: templates, media: mediaStore, menus: menuStore, builder: builderStore, themes: themeManager, plugins: pluginManager,
+		cache: responseCache, loginProtection: loginProtection,
+		uploadDir: settings.UploadDir, themeDir: settings.ThemeDir, pluginDir: settings.PluginDir, backupDir: settings.BackupDir,
 	}
 	mux := http.NewServeMux()
 	staticHandler := http.FileServer(http.FS(staticFiles))
@@ -236,12 +251,32 @@ func NewHandler(db *sql.DB, options ...Options) (http.Handler, error) {
 	mux.HandleFunc("POST /admin/appearance/menus/{id}/delete", h.deleteMenu)
 	mux.HandleFunc("POST /admin/appearance/menu-items/{id}/move", h.moveMenuItem)
 	mux.HandleFunc("POST /admin/appearance/menu-items/{id}/delete", h.deleteMenuItem)
+	mux.HandleFunc("GET /admin/appearance/sections", h.sectionsPage)
+	mux.HandleFunc("POST /admin/appearance/sections/save", h.saveSection)
+	mux.HandleFunc("POST /admin/appearance/sections/{id}/delete", h.deleteSection)
 	mux.HandleFunc("POST /admin/appearance/{name}/activate", h.activateTheme)
+	mux.HandleFunc("GET /admin/builder", h.builderList)
+	mux.HandleFunc("GET /admin/builder/new", h.builderNew)
+	mux.HandleFunc("GET /admin/builder/{id}/edit", h.builderEdit)
+	mux.HandleFunc("POST /admin/builder/save", h.saveBuilderLayout)
+	mux.HandleFunc("POST /admin/builder/preview", h.previewBuilderBlocks)
+	mux.HandleFunc("POST /admin/builder/homepage/clear", h.clearHomepageLayout)
+	mux.HandleFunc("POST /admin/builder/{id}/homepage", h.setHomepageLayout)
+	mux.HandleFunc("POST /admin/builder/{id}/duplicate", h.duplicateBuilderLayout)
+	mux.HandleFunc("POST /admin/builder/{id}/delete", h.deleteBuilderLayout)
+	mux.HandleFunc("POST /admin/builder/submissions/{id}/delete", h.deleteFormSubmission)
+	mux.Handle("POST /forms/submit", formLimiter.Middleware("form", http.HandlerFunc(h.submitPublicForm)))
 	mux.HandleFunc("GET /admin/plugins", h.pluginList)
 	mux.HandleFunc("GET /admin/plugins/install", h.pluginInstallPage)
 	mux.HandleFunc("POST /admin/plugins/install", h.installPlugin)
 	mux.HandleFunc("POST /admin/plugins/{id}/activate", h.activatePlugin)
 	mux.HandleFunc("POST /admin/plugins/{id}/deactivate", h.deactivatePlugin)
+	mux.HandleFunc("GET /admin/plugin/{id}", h.pluginAdminPage)
+	mux.HandleFunc("POST /admin/plugin/{id}/settings", h.savePluginSetting)
+	mux.HandleFunc("POST /admin/plugin/{id}/settings/delete", h.deletePluginSetting)
+	mux.HandleFunc("GET /admin/security", h.securityPage)
+	mux.HandleFunc("POST /admin/security/totp/enable", h.enableTOTP)
+	mux.HandleFunc("POST /admin/security/totp/disable", h.disableTOTP)
 	mux.HandleFunc("GET /admin/users", h.userList)
 	mux.HandleFunc("POST /admin/users", h.createUser)
 	mux.HandleFunc("GET /admin/settings", h.settings)
@@ -311,11 +346,16 @@ func (h *handler) publicCacheKey(r *http.Request) string {
 		log.Printf("read site settings for public cache: %v", err)
 		return fmt.Sprintf("%s|uncacheable=%d", key, time.Now().UnixNano())
 	}
-	return fmt.Sprintf("%s|theme=%q|title=%q|tagline=%q|logo=%q|front=%q:%d|intro=%q|posts=%q|url=%q|desc=%q|og=%q|tw=%q|robots=%q",
+	builderRev, err := h.builder.Revision(r.Context())
+	if err != nil {
+		log.Printf("read builder revision for public cache: %v", err)
+		return fmt.Sprintf("%s|uncacheable=%d", key, time.Now().UnixNano())
+	}
+	return fmt.Sprintf("%s|theme=%q|title=%q|tagline=%q|logo=%q|front=%q:%d|intro=%q|posts=%q|url=%q|desc=%q|og=%q|tw=%q|robots=%q|builder=%q",
 		key, activeTheme, settings.Title, settings.Tagline, settings.Logo, settings.ShowOnFront,
 		settings.PageOnFront, settings.HomeIntroTitle, settings.HomePostsTitle,
 		settings.SiteURL, settings.SEODefaultDescription, settings.SEODefaultOGImage,
-		settings.SEOTwitterHandle, settings.SEORobotsIndexing)
+		settings.SEOTwitterHandle, settings.SEORobotsIndexing, builderRev)
 }
 
 func (h *handler) setupForm(w http.ResponseWriter, r *http.Request) {
@@ -445,6 +485,29 @@ func (h *handler) login(w http.ResponseWriter, r *http.Request) {
 		slog.Error("authenticate administrator", "remote_addr", clientAddress(r), "error", err)
 		http.Error(w, "failed to authenticate", http.StatusInternalServerError)
 		return
+	}
+	if user.TOTPEnabled {
+		totpOK, err := auth.VerifyUserTOTP(r.Context(), h.db, user.ID, r.FormValue("totp_code"))
+		if err != nil {
+			slog.Error("verify user TOTP", "remote_addr", clientAddress(r), "error", err)
+			http.Error(w, "failed to authenticate", http.StatusInternalServerError)
+			return
+		}
+		if !totpOK {
+			ip := clientAddress(r)
+			blocked := h.loginProtection.Failed(ip, time.Now())
+			slog.Warn("2FA verification failed", "remote_addr", ip, "cooldown_started", blocked)
+			msg := "Informe o código de 6 dígitos do seu aplicativo autenticador."
+			if strings.TrimSpace(r.FormValue("totp_code")) != "" {
+				msg = "Código de autenticação (2FA) inválido."
+			}
+			h.renderWithCSRF(w, r, "login.html", formData{
+				Username:    username,
+				Error:       msg,
+				RequireTOTP: true,
+			}, http.StatusUnauthorized)
+			return
+		}
 	}
 	h.loginProtection.Clear(clientAddress(r))
 	if err := h.startSession(w, r, user.ID); err != nil {
