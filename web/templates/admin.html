@@ -208,7 +208,7 @@
                     <label for="category_ids">Selecionar categorias</label>
                     <select id="category_ids" name="category_ids" multiple size="5">
                       {{range .Categories}}
-                        <option value="{{.ID}}" {{if index $.SelectedCategories .ID}}selected{{end}}>{{repeat .Depth "— "}}{{.Name}}</option>
+                        <option value="{{.ID}}" {{if index $.SelectedCategories .ID}}selected{{end}}>{{repeat "— " .Depth}}{{.Name}}</option>
                       {{end}}
                     </select>
                   {{else}}<p class="muted">Nenhuma categoria criada ainda.</p>{{end}}
@@ -218,7 +218,7 @@
                   <label for="new_category_parent_id">Categoria superior</label>
                   <select id="new_category_parent_id" name="new_category_parent_id">
                     <option value="0">Nenhuma</option>
-                    {{range .Categories}}<option value="{{.ID}}">{{repeat .Depth "— "}}{{.Name}}</option>{{end}}
+                    {{range .Categories}}<option value="{{.ID}}">{{repeat "— " .Depth}}{{.Name}}</option>{{end}}
                   </select>
                   <label for="tags">Tags <span class="muted">separadas por vírgula</span></label>
                   <input id="tags" name="tags" type="text" maxlength="1000" value="{{.TagInput}}" placeholder="produto, novidades">

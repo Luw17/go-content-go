@@ -2417,3 +2417,85 @@ func TestPluginExtendedHooksJSONLDAndAdminPages(t *testing.T) {
 		t.Errorf("public post contained unsanitized script from content:after_render")
 	}
 }
+
+
+func TestAdminCategoriesCreateWithParentsAndDelete(t *testing.T) {
+	ctx := context.Background()
+	db, err := database.Open(ctx, filepath.Join(t.TempDir(), "categories-web.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := database.Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	admin, err := auth.CreateInitialAdmin(ctx, db, "admin", "strong-password-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, expiresAt, err := auth.CreateSession(ctx, db, admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionCookie := &http.Cookie{Name: sessionCookieName, Value: token, Path: "/", Expires: expiresAt}
+
+	handler, err := NewHandler(db, Options{
+		UploadDir: t.TempDir(),
+		ThemeDir:  t.TempDir(),
+		PluginDir: t.TempDir(),
+		BackupDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Load /admin/categories and create first category
+	catPage := getWithCookies(handler, "/admin/categories", sessionCookie)
+	if catPage.Code != http.StatusOK {
+		t.Fatalf("GET /admin/categories = %d", catPage.Code)
+	}
+	catCSRF := cookieNamed(t, catPage, csrfCookieName)
+	create1 := postForm(handler, "/admin/categories/save", url.Values{
+		"csrf_token": {csrfFromBody(t, catPage.Body.String())},
+		"name":       {"Notícias"},
+	}, sessionCookie, catCSRF)
+	if create1.Code != http.StatusSeeOther || create1.Header().Get("Location") != "/admin/categories?saved=1" {
+		t.Fatalf("create first category = %d (%s)", create1.Code, create1.Header().Get("Location"))
+	}
+
+	// 2. Create child category referencing parent 1
+	catPage2 := getWithCookies(handler, "/admin/categories", sessionCookie)
+	catCSRF2 := cookieNamed(t, catPage2, csrfCookieName)
+	create2 := postForm(handler, "/admin/categories/save", url.Values{
+		"csrf_token": {csrfFromBody(t, catPage2.Body.String())},
+		"name":       {"Lançamentos"},
+		"parent_ids": {"1"},
+	}, sessionCookie, catCSRF2)
+	if create2.Code != http.StatusSeeOther || create2.Header().Get("Location") != "/admin/categories?saved=1" {
+		t.Fatalf("create child category = %d (%s)", create2.Code, create2.Header().Get("Location"))
+	}
+
+	// 3. Verify both appear on /admin/categories, /admin/posts/new, and /admin/builder/new
+	catPage3 := getWithCookies(handler, "/admin/categories", sessionCookie)
+	body := catPage3.Body.String()
+	if !strings.Contains(body, "Notícias") || !strings.Contains(body, "Lançamentos") || !strings.Contains(body, "(1 pai)") {
+		t.Errorf("categories page missing created categories: %s", body)
+	}
+	postEditorPage := getWithCookies(handler, "/admin/posts/new", sessionCookie)
+	if !strings.Contains(postEditorPage.Body.String(), "— Lançamentos") {
+		t.Errorf("post editor failed to render hierarchical category option")
+	}
+	builderForm := getWithCookies(handler, "/admin/builder/new", sessionCookie)
+	if !strings.Contains(builderForm.Body.String(), "— Lançamentos") {
+		t.Errorf("builder editor failed to render hierarchical category option")
+	}
+
+	// 4. Delete child category
+	catCSRF3 := cookieNamed(t, catPage3, csrfCookieName)
+	delResp := postForm(handler, "/admin/categories/2/delete", url.Values{
+		"csrf_token": {csrfFromBody(t, body)},
+	}, sessionCookie, catCSRF3)
+	if delResp.Code != http.StatusSeeOther || delResp.Header().Get("Location") != "/admin/categories?deleted=1" {
+		t.Fatalf("delete category = %d (%s)", delResp.Code, delResp.Header().Get("Location"))
+	}
+}

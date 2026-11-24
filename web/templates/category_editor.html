@@ -16,7 +16,7 @@
       {{if .Categories}}
         <select id="cat-parents" class="category-parents-select" name="parent_ids" multiple size="5">
           {{range .Categories}}
-            <option value="{{.ID}}">{{repeat .Depth "— "}}{{.Name}}</option>
+            <option value="{{.ID}}">{{repeat "— " .Depth}}{{.Name}}</option>
           {{end}}
         </select>
         <p class="muted">Segure Ctrl (ou Cmd) para selecionar mais de uma categoria pai.</p>

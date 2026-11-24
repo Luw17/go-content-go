@@ -286,3 +286,67 @@ func TestContentSEOFields(t *testing.T) {
 	}
 }
 
+
+
+func TestSaveCategoryMultipleParentsAndDeletion(t *testing.T) {
+	ctx := context.Background()
+	db, err := database.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := database.Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+
+	parentA, err := SaveCategory(ctx, db, CategoryInput{Name: "Tecnologia"})
+	if err != nil {
+		t.Fatalf("SaveCategory(parentA) error = %v", err)
+	}
+	if parentA.Slug != "tecnologia" {
+		t.Fatalf("parentA.Slug = %q, want tecnologia", parentA.Slug)
+	}
+
+	parentB, err := SaveCategory(ctx, db, CategoryInput{Name: "Inovação"})
+	if err != nil {
+		t.Fatalf("SaveCategory(parentB) error = %v", err)
+	}
+	if parentB.Slug != "inovacao" {
+		t.Fatalf("parentB.Slug = %q, want inovacao", parentB.Slug)
+	}
+
+	child, err := SaveCategory(ctx, db, CategoryInput{
+		Name:      "Inteligência Artificial",
+		ParentIDs: []int64{parentA.ID, parentB.ID},
+	})
+	if err != nil {
+		t.Fatalf("SaveCategory(child) error = %v", err)
+	}
+	if child.Slug != "inteligencia-artificial" || len(child.ParentIDs) != 2 || child.ParentID != parentA.ID {
+		t.Fatalf("unexpected child category: %+v", child)
+	}
+
+	all, err := CategoriesWithParents(ctx, db)
+	if err != nil {
+		t.Fatalf("CategoriesWithParents() error = %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("CategoriesWithParents() len = %d, want 3", len(all))
+	}
+	var foundChild bool
+	for _, c := range all {
+		if c.ID == child.ID {
+			foundChild = true
+			if c.Depth != 1 || len(c.ParentIDs) != 2 {
+				t.Errorf("child depth=%d parents=%v, want depth=1 and 2 parents", c.Depth, c.ParentIDs)
+			}
+		}
+	}
+	if !foundChild {
+		t.Fatal("child category not returned by CategoriesWithParents")
+	}
+
+	if err := DeleteCategory(ctx, db, child.ID); err != nil {
+		t.Fatalf("DeleteCategory() error = %v", err)
+	}
+}

@@ -185,7 +185,7 @@
         <select id="builder-categories-source" hidden aria-hidden="true">
           <option value="">Todas as categorias</option>
           {{range .Categories}}
-            <option value="{{.Slug}}">{{repeat .Depth "— "}}{{.Name}}</option>
+            <option value="{{.Slug}}">{{repeat "— " .Depth}}{{.Name}}</option>
           {{end}}
         </select>
         <select id="builder-media-source" hidden aria-hidden="true">
