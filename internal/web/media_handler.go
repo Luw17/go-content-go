@@ -5,6 +5,7 @@ import (
 	"log"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -19,7 +20,13 @@ func (h *handler) mediaLibrary(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	items, err := h.media.List(r.Context())
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	pageNum, ok := parsePageParam(r)
+	if !ok {
+		pageNum = 1
+	}
+	const mediaPerPage = 12
+	items, total, err := h.media.ListFilteredPage(r.Context(), query, pageNum, mediaPerPage)
 	if err != nil {
 		log.Printf("list media library: %v", err)
 		http.Error(w, "Não foi possível carregar a biblioteca de mídias.", http.StatusInternalServerError)
@@ -30,16 +37,28 @@ func (h *handler) mediaLibrary(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Não foi possível preparar a biblioteca de mídias.", http.StatusInternalServerError)
 		return
 	}
+	extra := url.Values{}
+	if query != "" {
+		extra.Set("q", query)
+	}
+	mediaPagination := buildPagination("/admin/media", extra, pageNum, mediaPerPage, total)
 	page := adminPage{
-		Mode:          "media",
-		Title:         "Mídias",
-		Username:      user.Username,
-		CSRFToken:     token,
-		MediaItems:    items,
-		MaxUploadSize: h.media.MaxSize(),
+		Mode:            "media",
+		Title:           "Mídias",
+		Username:        user.Username,
+		Role:            user.Role,
+		CSRFToken:       token,
+		MediaItems:      items,
+		MaxUploadSize:   h.media.MaxSize(),
+		FilterQuery:     query,
+		AdminPagination: mediaPagination,
 	}
 	if r.URL.Query().Get("uploaded") == "1" {
 		page.Notice = "Arquivo enviado com sucesso."
+	} else if r.URL.Query().Get("updated") == "1" {
+		page.Notice = "Metadados da mídia atualizados."
+	} else if r.URL.Query().Get("error") == "invalid" {
+		page.Error = "Os metadados excedem o limite permitido."
 	}
 	h.renderAdmin(w, page)
 }
@@ -183,7 +202,7 @@ func (h *handler) serveUpload(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	item, err := h.media.FindByPath(r.Context(), publicPath)
+	item, isThumb, err := h.media.FindByPublicPath(r.Context(), publicPath)
 	if errors.Is(err, media.ErrNotFound) {
 		http.NotFound(w, r)
 		return
@@ -193,7 +212,13 @@ func (h *handler) serveUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to load file", http.StatusInternalServerError)
 		return
 	}
-	path, err := h.media.ResolvePublicPath(item.Filepath)
+	targetPublicPath := item.Filepath
+	contentType := item.FileType
+	if isThumb {
+		targetPublicPath = item.ThumbnailPath
+		contentType = "image/jpeg"
+	}
+	path, err := h.media.ResolvePublicPath(targetPublicPath)
 	if err != nil {
 		http.NotFound(w, r)
 		return
@@ -215,12 +240,12 @@ func (h *handler) serveUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", item.FileType)
-	w.Header().Set("Content-Length", strconv.FormatInt(item.FileSize, 10))
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", strconv.FormatInt(info.Size(), 10))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": item.Filename}))
-	if item.FileType == "image/svg+xml" {
+	if contentType == "image/svg+xml" {
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	}
 	http.ServeContent(w, r, item.Filename, info.ModTime(), file)
@@ -258,4 +283,30 @@ func (h *handler) mediaActionError(w http.ResponseWriter, r *http.Request, statu
 func isRequestTooLarge(err error) bool {
 	var maxBytesError *http.MaxBytesError
 	return errors.As(err, &maxBytesError) || (err != nil && strings.Contains(err.Error(), "request body too large"))
+}
+
+func (h *handler) updateMediaMetadata(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireAdmin(w, r); !ok {
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id <= 0 {
+		http.NotFound(w, r)
+		return
+	}
+	err = h.media.UpdateMetadata(r.Context(), id, r.FormValue("alt_text"), r.FormValue("description"))
+	if errors.Is(err, media.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if errors.Is(err, media.ErrInvalidFile) {
+		http.Redirect(w, r, "/admin/media?error=invalid", http.StatusSeeOther)
+		return
+	}
+	if err != nil {
+		log.Printf("update media metadata %d: %v", id, err)
+		http.Error(w, "failed to update media metadata", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/admin/media?updated=1", http.StatusSeeOther)
 }

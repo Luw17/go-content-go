@@ -4,10 +4,14 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Entrar | Go Content Go!</title>
+    <link rel="icon" type="image/svg+xml" href="/static/brand/gcg-icon.svg">
     <link rel="stylesheet" href="/static/style.css?v={{staticVersion "style.css"}}">
   </head>
   <body>
-    <main>
+    <main class="auth-card">
+      <div class="auth-brand">
+        <img class="auth-logo" src="/static/brand/gcg-logo-light.svg" alt="Go Content Go">
+      </div>
       <p class="eyebrow">Área administrativa</p>
       <h1>Entrar</h1>
       {{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
@@ -18,9 +22,9 @@
           value="{{.Username}}" required>
         <label for="password">Senha</label>
         <input id="password" name="password" type="password" autocomplete="current-password" required>
-        <label for="totp_code">Código 2FA {{if not .RequireTOTP}}<span class="muted">(se ativado)</span>{{end}}</label>
-        <input id="totp_code" name="totp_code" type="text" inputmode="numeric" autocomplete="one-time-code"
-          maxlength="8" placeholder="000000" {{if .RequireTOTP}}required{{end}}>
+        <label for="totp_code">Código 2FA ou de recuperação {{if not .RequireTOTP}}<span class="muted">(se ativado)</span>{{end}}</label>
+        <input id="totp_code" name="totp_code" type="text" autocomplete="one-time-code"
+          maxlength="20" placeholder="000000 ou XXXXX-XXXXX" {{if .RequireTOTP}}required{{end}}>
         <button type="submit">Entrar</button>
       </form>
     </main>

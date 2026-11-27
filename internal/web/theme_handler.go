@@ -195,7 +195,11 @@ func (h *handler) serveThemeAsset(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Length", strconv.FormatInt(info.Size(), 10))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Cache-Control", "no-cache")
+	if version := h.themes.AssetVersion(active, assetPath); version != "" && r.URL.Query().Get("v") == version {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else {
+		w.Header().Set("Cache-Control", "no-cache")
+	}
 	w.WriteHeader(http.StatusOK)
 	if r.Method != http.MethodHead {
 		if _, err := io.Copy(w, file); err != nil {
@@ -246,6 +250,14 @@ func (h *handler) renderTheme(w http.ResponseWriter, r *http.Request, templateNa
 		"render_footer": func() (template.HTML, error) {
 			return h.renderVisualSection(r, builder.SectionFooter, sectionScope, sectionSlug, settings)
 		},
+		"theme_asset": func(themeName, assetPath string) string {
+			v := h.themes.AssetVersion(themeName, assetPath)
+			base := "/themes/" + themeName + "/" + strings.TrimPrefix(assetPath, "/")
+			if v == "" {
+				return base
+			}
+			return base + "?v=" + v
+		},
 	})
 	if err != nil {
 		log.Printf("resolve theme for public page: %v", err)
@@ -291,9 +303,12 @@ func (h *handler) renderTheme(w http.ResponseWriter, r *http.Request, templateNa
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Length", strconv.Itoa(rendered.Len()))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(status)
-	_, _ = w.Write(rendered.Bytes())
+	if r.Method != http.MethodHead {
+		_, _ = w.Write(rendered.Bytes())
+	}
 }
 
 func (h *handler) filteredHeadTags(r *http.Request, pageContext map[string]any) template.HTML {

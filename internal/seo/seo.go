@@ -16,18 +16,26 @@ import (
 type PageType string
 
 const (
-	TypeHome PageType = "home"
-	TypePost PageType = "post"
-	TypePage PageType = "page"
-	Type404  PageType = "404"
+	TypeHome    PageType = "home"
+	TypePost    PageType = "post"
+	TypePage    PageType = "page"
+	TypeArchive PageType = "archive"
+	TypeSearch  PageType = "search"
+	Type404     PageType = "404"
 )
 
 type Params struct {
-	Type     PageType
-	Site     siteconfig.Settings
-	Item     *content.Item
+	Type            PageType
+	Site            siteconfig.Settings
+	Item            *content.Item
 	FallbackSummary string
-	Request  *http.Request
+	Request         *http.Request
+	Title           string
+	Description     string
+	CanonicalPath   string
+	BreadcrumbName  string
+	PrevURL         string
+	NextURL         string
 }
 
 type Metadata struct {
@@ -93,7 +101,17 @@ func Build(p Params) Metadata {
 	// 1. Title
 	switch p.Type {
 	case TypeHome:
-		m.Title = p.Site.Title
+		if p.Title != "" {
+			m.Title = p.Title
+		} else {
+			m.Title = p.Site.Title
+		}
+	case TypeArchive, TypeSearch:
+		if p.Title != "" {
+			m.Title = p.Title + " | " + p.Site.Title
+		} else {
+			m.Title = p.Site.Title
+		}
 	case Type404:
 		m.Title = "Página não encontrada | " + p.Site.Title
 	default:
@@ -109,6 +127,8 @@ func Build(p Params) Metadata {
 	// 2. Meta Description
 	if p.Item != nil && p.Item.SEODescription != "" {
 		m.MetaDescription = p.Item.SEODescription
+	} else if p.Description != "" {
+		m.MetaDescription = p.Description
 	} else if p.FallbackSummary != "" {
 		m.MetaDescription = p.FallbackSummary
 	} else if p.Site.SEODefaultDescription != "" {
@@ -120,6 +140,8 @@ func Build(p Params) Metadata {
 	// 3. Canonical URL
 	if p.Item != nil && p.Item.CanonicalURL != "" {
 		m.CanonicalURL = AbsoluteURL(baseURL, p.Item.CanonicalURL)
+	} else if p.CanonicalPath != "" {
+		m.CanonicalURL = AbsoluteURL(baseURL, p.CanonicalPath)
 	} else if p.Type == TypeHome {
 		m.CanonicalURL = baseURL + "/"
 	} else if p.Item != nil && p.Item.Slug != "" {
@@ -133,6 +155,8 @@ func Build(p Params) Metadata {
 	// 4. Robots
 	if p.Site.SEORobotsIndexing == siteconfig.RobotsNoindex || (p.Item != nil && p.Item.Noindex) || p.Type == Type404 {
 		m.Robots = "noindex, nofollow"
+	} else if p.Type == TypeSearch {
+		m.Robots = "noindex, follow"
 	} else {
 		m.Robots = "index, follow"
 	}
@@ -297,6 +321,46 @@ func buildJSONLD(p Params, baseURL string, m Metadata) []string {
 				schemas = append(schemas, string(raw))
 			}
 		}
+
+	case TypeArchive:
+		collectionSchema := map[string]any{
+			"@context":    "https://schema.org",
+			"@type":       "CollectionPage",
+			"name":        m.Title,
+			"url":         m.CanonicalURL,
+			"description": m.MetaDescription,
+			"publisher":   org,
+		}
+		if raw, err := json.Marshal(collectionSchema); err == nil {
+			schemas = append(schemas, string(raw))
+		}
+		crumbName := p.BreadcrumbName
+		if crumbName == "" {
+			crumbName = p.Title
+		}
+		if crumbName != "" {
+			breadcrumbs := map[string]any{
+				"@context": "https://schema.org",
+				"@type":    "BreadcrumbList",
+				"itemListElement": []map[string]any{
+					{
+						"@type":    "ListItem",
+						"position": 1,
+						"name":     "Início",
+						"item":     baseURL + "/",
+					},
+					{
+						"@type":    "ListItem",
+						"position": 2,
+						"name":     crumbName,
+						"item":     m.CanonicalURL,
+					},
+				},
+			}
+			if raw, err := json.Marshal(breadcrumbs); err == nil {
+				schemas = append(schemas, string(raw))
+			}
+		}
 	}
 
 	return schemas
@@ -305,11 +369,38 @@ func buildJSONLD(p Params, baseURL string, m Metadata) []string {
 // RenderHTML generates the complete <head> tags for SEO, Open Graph, Twitter Cards, and JSON-LD.
 func RenderHTML(p Params) template.HTML {
 	m := Build(p)
+	baseURL := BaseURL(p.Site, p.Request)
 	var buf bytes.Buffer
 
 	// Canonical link
 	if m.CanonicalURL != "" {
 		fmt.Fprintf(&buf, "<link rel=\"canonical\" href=\"%s\">\n", html.EscapeString(m.CanonicalURL))
+	}
+
+	// Pagination links
+	if p.PrevURL != "" {
+		fmt.Fprintf(&buf, "<link rel=\"prev\" href=\"%s\">\n", html.EscapeString(AbsoluteURL(baseURL, p.PrevURL)))
+	}
+	if p.NextURL != "" {
+		fmt.Fprintf(&buf, "<link rel=\"next\" href=\"%s\">\n", html.EscapeString(AbsoluteURL(baseURL, p.NextURL)))
+	}
+
+	// RSS 2.0 autodiscovery
+	rssTitle := strings.TrimSpace(p.Site.Title)
+	if rssTitle == "" {
+		rssTitle = "RSS"
+	} else {
+		rssTitle += " — RSS"
+	}
+	fmt.Fprintf(&buf, "<link rel=\"alternate\" type=\"application/rss+xml\" title=\"%s\" href=\"%s\">\n",
+		html.EscapeString(rssTitle), html.EscapeString(baseURL+"/rss.xml"))
+
+	// Favicon & Apple Touch Icon
+	if p.Site.Favicon != "" {
+		fmt.Fprintf(&buf, "<link rel=\"icon\" href=\"%s\">\n", html.EscapeString(p.Site.Favicon))
+	}
+	if p.Site.AppleTouchIcon != "" {
+		fmt.Fprintf(&buf, "<link rel=\"apple-touch-icon\" href=\"%s\">\n", html.EscapeString(p.Site.AppleTouchIcon))
 	}
 
 	// Robots

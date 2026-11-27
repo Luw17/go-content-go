@@ -38,6 +38,7 @@ type User struct {
 	Username    string
 	Role        string
 	TOTPEnabled bool
+	Active      bool
 }
 
 // SetupAvailable reports whether the first administrator still needs to be created.
@@ -94,11 +95,13 @@ func Authenticate(ctx context.Context, db *sql.DB, username, password string) (U
 	var user User
 	var passwordHash string
 	var totpEnabled int
+	var active int
 	err := db.QueryRowContext(ctx,
-		"SELECT id, username, role, password_hash, totp_enabled FROM users WHERE username = ?",
+		"SELECT id, username, role, password_hash, totp_enabled, active FROM users WHERE username = ?",
 		username,
-	).Scan(&user.ID, &user.Username, &user.Role, &passwordHash, &totpEnabled)
+	).Scan(&user.ID, &user.Username, &user.Role, &passwordHash, &totpEnabled, &active)
 	user.TOTPEnabled = totpEnabled == 1
+	user.Active = active == 1
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return User{}, fmt.Errorf("load user credentials: %w", err)
 	}
@@ -111,7 +114,7 @@ func Authenticate(ctx context.Context, db *sql.DB, username, password string) (U
 		_ = bcrypt.CompareHashAndPassword(hash, []byte(password))
 		return User{}, ErrInvalidCredentials
 	}
-	if !ValidRole(user.Role) || bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password)) != nil {
+	if !user.Active || !ValidRole(user.Role) || bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password)) != nil {
 		return User{}, ErrInvalidCredentials
 	}
 	cost, err := bcrypt.Cost([]byte(passwordHash))
@@ -164,21 +167,23 @@ func SessionUser(ctx context.Context, db *sql.DB, token string) (User, bool, err
 	tokenHash := sha256.Sum256([]byte(token))
 	var user User
 	var totpEnabled int
+	var active int
 	err := db.QueryRowContext(ctx, `
-		SELECT users.id, users.username, users.role, users.totp_enabled
+		SELECT users.id, users.username, users.role, users.totp_enabled, users.active
 		FROM sessions
 		JOIN users ON users.id = sessions.user_id
 		WHERE sessions.token_hash = ? AND sessions.expires_at > ?
 	`, tokenHash[:], time.Now().UTC().UnixNano()).
-		Scan(&user.ID, &user.Username, &user.Role, &totpEnabled)
+		Scan(&user.ID, &user.Username, &user.Role, &totpEnabled, &active)
 	user.TOTPEnabled = totpEnabled == 1
+	user.Active = active == 1
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, false, nil
 	}
 	if err != nil {
 		return User{}, false, fmt.Errorf("validate session: %w", err)
 	}
-	return user, ValidRole(user.Role), nil
+	return user, user.Active && ValidRole(user.Role), nil
 }
 
 func ValidRole(role string) bool {
@@ -212,11 +217,11 @@ func CreateUser(ctx context.Context, db *sql.DB, username, password, role string
 	if err != nil {
 		return User{}, fmt.Errorf("load created user ID: %w", err)
 	}
-	return User{ID: id, Username: username, Role: role}, nil
+	return User{ID: id, Username: username, Role: role, Active: true}, nil
 }
 
 func Users(ctx context.Context, db *sql.DB) ([]User, error) {
-	rows, err := db.QueryContext(ctx, "SELECT id, username, role, totp_enabled FROM users ORDER BY username")
+	rows, err := db.QueryContext(ctx, "SELECT id, username, role, totp_enabled, active FROM users ORDER BY username")
 	if err != nil {
 		return nil, fmt.Errorf("list users: %w", err)
 	}
@@ -224,11 +229,12 @@ func Users(ctx context.Context, db *sql.DB) ([]User, error) {
 	var users []User
 	for rows.Next() {
 		var user User
-		var totpEnabled int
-		if err := rows.Scan(&user.ID, &user.Username, &user.Role, &totpEnabled); err != nil {
+		var totpEnabled, active int
+		if err := rows.Scan(&user.ID, &user.Username, &user.Role, &totpEnabled, &active); err != nil {
 			return nil, fmt.Errorf("scan user: %w", err)
 		}
 		user.TOTPEnabled = totpEnabled == 1
+		user.Active = active == 1
 		users = append(users, user)
 	}
 	if err := rows.Err(); err != nil {

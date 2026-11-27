@@ -31,15 +31,16 @@ var (
 )
 
 type Item struct {
-	ID          int64
-	Filename    string
-	Filepath    string
-	FileType    string
-	FileSize    int64
-	AltText     string
-	Description string
-	FolderID    int64
-	UploadedAt  string
+	ID            int64
+	Filename      string
+	Filepath      string
+	ThumbnailPath string
+	FileType      string
+	FileSize      int64
+	AltText       string
+	Description   string
+	FolderID      int64
+	UploadedAt    string
 }
 
 type Store struct {
@@ -162,30 +163,51 @@ func (s *Store) Save(ctx context.Context, originalFilename, altText, description
 	committedFile = true
 
 	publicPath := "/uploads/" + filepath.ToSlash(filepath.Join(relativeDir, storedName))
+	thumbPublicPath := ""
+	thumbDest := ""
+	if fileType == "image/jpeg" || fileType == "image/png" {
+		thumbRel := filepath.Join(relativeDir, "thumbs", hex.EncodeToString(randomName)+".jpg")
+		candidate := filepath.Join(s.root, thumbRel)
+		if err := generateThumbnail(destination, candidate, 480); err == nil {
+			thumbPublicPath = "/uploads/" + filepath.ToSlash(thumbRel)
+			thumbDest = candidate
+		}
+	}
+	cleanupSavedFiles := func() error {
+		if thumbDest != "" {
+			_ = os.Remove(thumbDest)
+		}
+		return os.Remove(destination)
+	}
 	item := Item{
-		Filename:    safeName,
-		Filepath:    publicPath,
-		FileType:    fileType,
-		FileSize:    size,
-		AltText:     strings.TrimSpace(altText),
-		Description: strings.TrimSpace(description),
-		FolderID:    folderID,
-		UploadedAt:  now.Format(time.RFC3339Nano),
+		Filename:      safeName,
+		Filepath:      publicPath,
+		ThumbnailPath: thumbPublicPath,
+		FileType:      fileType,
+		FileSize:      size,
+		AltText:       strings.TrimSpace(altText),
+		Description:   strings.TrimSpace(description),
+		FolderID:      folderID,
+		UploadedAt:    now.Format(time.RFC3339Nano),
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		if removeErr := os.Remove(destination); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+		if removeErr := cleanupSavedFiles(); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
 			return Item{}, fmt.Errorf("begin media index transaction: %v; cleanup failed: %w", err, removeErr)
 		}
 		return Item{}, fmt.Errorf("begin media index transaction: %w", err)
 	}
+	var folderVal any
+	if item.FolderID > 0 {
+		folderVal = item.FolderID
+	}
 	result, err := tx.ExecContext(ctx, `
-		INSERT INTO media (filename, filepath, file_type, file_size, alt_text, uploaded_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, item.Filename, item.Filepath, item.FileType, item.FileSize, item.AltText, item.UploadedAt)
+		INSERT INTO media (filename, filepath, thumbnail_path, file_type, file_size, alt_text, description, folder_id, uploaded_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, item.Filename, item.Filepath, item.ThumbnailPath, item.FileType, item.FileSize, item.AltText, item.Description, folderVal, item.UploadedAt)
 	if err != nil {
 		_ = tx.Rollback()
-		if removeErr := os.Remove(destination); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+		if removeErr := cleanupSavedFiles(); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
 			return Item{}, fmt.Errorf("index uploaded media: %v; cleanup failed: %w", err, removeErr)
 		}
 		return Item{}, fmt.Errorf("index uploaded media: %w", err)
@@ -193,13 +215,13 @@ func (s *Store) Save(ctx context.Context, originalFilename, altText, description
 	item.ID, err = result.LastInsertId()
 	if err != nil {
 		_ = tx.Rollback()
-		if removeErr := os.Remove(destination); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+		if removeErr := cleanupSavedFiles(); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
 			return Item{}, fmt.Errorf("get media ID: %v; cleanup failed: %w", err, removeErr)
 		}
 		return Item{}, fmt.Errorf("get media ID: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
-		if removeErr := os.Remove(destination); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+		if removeErr := cleanupSavedFiles(); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
 			return Item{}, fmt.Errorf("commit media index: %v; cleanup failed: %w", err, removeErr)
 		}
 		return Item{}, fmt.Errorf("commit media index: %w", err)
@@ -208,38 +230,103 @@ func (s *Store) Save(ctx context.Context, originalFilename, altText, description
 }
 
 func (s *Store) List(ctx context.Context) ([]Item, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, filename, filepath, file_type, file_size, alt_text, COALESCE(description,''), COALESCE(folder_id,0), uploaded_at
-		FROM media ORDER BY uploaded_at DESC, id DESC
-	`)
+	return s.ListFiltered(ctx, "")
+}
+
+func (s *Store) ListFiltered(ctx context.Context, query string) ([]Item, error) {
+	items, _, err := s.ListFilteredPage(ctx, query, 1, 1000)
+	return items, err
+}
+
+func (s *Store) ListFilteredPage(ctx context.Context, query string, page, perPage int) ([]Item, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if perPage < 1 || perPage > 1000 {
+		perPage = 12
+	}
+	q := strings.TrimSpace(strings.ToLower(query))
+	var total int64
+	var rows *sql.Rows
+	var err error
+	if q == "" {
+		if err = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM media`).Scan(&total); err != nil {
+			return nil, 0, fmt.Errorf("count media: %w", err)
+		}
+		rows, err = s.db.QueryContext(ctx, `
+			SELECT id, filename, filepath, COALESCE(thumbnail_path,''), file_type, file_size, alt_text, COALESCE(description,''), COALESCE(folder_id,0), uploaded_at
+			FROM media ORDER BY uploaded_at DESC, id DESC
+			LIMIT ? OFFSET ?
+		`, perPage, (page-1)*perPage)
+	} else {
+		like := "%" + q + "%"
+		if err = s.db.QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM media
+			WHERE LOWER(filename) LIKE ? OR LOWER(alt_text) LIKE ? OR LOWER(COALESCE(description,'')) LIKE ?
+		`, like, like, like).Scan(&total); err != nil {
+			return nil, 0, fmt.Errorf("count filtered media: %w", err)
+		}
+		rows, err = s.db.QueryContext(ctx, `
+			SELECT id, filename, filepath, COALESCE(thumbnail_path,''), file_type, file_size, alt_text, COALESCE(description,''), COALESCE(folder_id,0), uploaded_at
+			FROM media
+			WHERE LOWER(filename) LIKE ? OR LOWER(alt_text) LIKE ? OR LOWER(COALESCE(description,'')) LIKE ?
+			ORDER BY uploaded_at DESC, id DESC
+			LIMIT ? OFFSET ?
+		`, like, like, like, perPage, (page-1)*perPage)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("list media: %w", err)
+		return nil, 0, fmt.Errorf("list media: %w", err)
 	}
 	defer rows.Close()
 	items := make([]Item, 0)
 	for rows.Next() {
 		var item Item
 		if err := rows.Scan(
-			&item.ID, &item.Filename, &item.Filepath, &item.FileType,
+			&item.ID, &item.Filename, &item.Filepath, &item.ThumbnailPath, &item.FileType,
 			&item.FileSize, &item.AltText, &item.Description, &item.FolderID, &item.UploadedAt,
 		); err != nil {
-			return nil, fmt.Errorf("scan media: %w", err)
+			return nil, 0, fmt.Errorf("scan media: %w", err)
 		}
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read media: %w", err)
+		return nil, 0, fmt.Errorf("read media: %w", err)
 	}
-	return items, nil
+	return items, total, nil
+}
+
+func (s *Store) UpdateMetadata(ctx context.Context, id int64, altText, description string) error {
+	if id <= 0 {
+		return ErrNotFound
+	}
+	altText = strings.TrimSpace(altText)
+	description = strings.TrimSpace(description)
+	if len(altText) > 500 || len(description) > 2000 {
+		return fmt.Errorf("%w: metadata exceeds maximum length", ErrInvalidFile)
+	}
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE media SET alt_text = ?, description = ? WHERE id = ?
+	`, altText, description, id)
+	if err != nil {
+		return fmt.Errorf("update media metadata: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("check media metadata update: %w", err)
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) FindByPath(ctx context.Context, publicPath string) (Item, error) {
 	var item Item
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, filename, filepath, file_type, file_size, alt_text, COALESCE(description,''), COALESCE(folder_id,0), uploaded_at
+		SELECT id, filename, filepath, COALESCE(thumbnail_path,''), file_type, file_size, alt_text, COALESCE(description,''), COALESCE(folder_id,0), uploaded_at
 		FROM media WHERE filepath = ?
 	`, publicPath).Scan(
-		&item.ID, &item.Filename, &item.Filepath, &item.FileType,
+		&item.ID, &item.Filename, &item.Filepath, &item.ThumbnailPath, &item.FileType,
 		&item.FileSize, &item.AltText, &item.Description, &item.FolderID, &item.UploadedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -249,6 +336,26 @@ func (s *Store) FindByPath(ctx context.Context, publicPath string) (Item, error)
 		return Item{}, fmt.Errorf("lookup media path: %w", err)
 	}
 	return item, nil
+}
+
+func (s *Store) FindByPublicPath(ctx context.Context, publicPath string) (Item, bool, error) {
+	var item Item
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, filename, filepath, COALESCE(thumbnail_path,''), file_type, file_size, alt_text, COALESCE(description,''), COALESCE(folder_id,0), uploaded_at
+		FROM media
+		WHERE filepath = ? OR (thumbnail_path != '' AND thumbnail_path = ?)
+	`, publicPath, publicPath).Scan(
+		&item.ID, &item.Filename, &item.Filepath, &item.ThumbnailPath, &item.FileType,
+		&item.FileSize, &item.AltText, &item.Description, &item.FolderID, &item.UploadedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Item{}, false, ErrNotFound
+	}
+	if err != nil {
+		return Item{}, false, fmt.Errorf("lookup media public path: %w", err)
+	}
+	isThumb := item.ThumbnailPath != "" && item.ThumbnailPath == publicPath
+	return item, isThumb, nil
 }
 
 func ensureDirectory(path string) error {
@@ -269,8 +376,8 @@ func (s *Store) Delete(ctx context.Context, id int64) error {
 	if id <= 0 {
 		return ErrNotFound
 	}
-	var publicPath string
-	if err := s.db.QueryRowContext(ctx, "SELECT filepath FROM media WHERE id = ?", id).Scan(&publicPath); err != nil {
+	var publicPath, thumbPath string
+	if err := s.db.QueryRowContext(ctx, "SELECT filepath, COALESCE(thumbnail_path,'') FROM media WHERE id = ?", id).Scan(&publicPath, &thumbPath); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
@@ -309,6 +416,11 @@ func (s *Store) Delete(ctx context.Context, id int64) error {
 	}
 	if err := os.Remove(quarantinePath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("media record deleted but file cleanup failed: %w", err)
+	}
+	if thumbPath != "" {
+		if absThumb, err := s.resolvePath(thumbPath); err == nil {
+			_ = os.Remove(absThumb)
+		}
 	}
 	return nil
 }

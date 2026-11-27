@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{.Title}} | Go Content Go!</title>
+    <link rel="icon" type="image/svg+xml" href="/static/brand/gcg-icon.svg">
     <link rel="stylesheet" href="/static/admin.css?v={{staticVersion "admin.css"}}">
     <meta name="htmx-config" content='{"includeIndicatorStyles":false}'>
     <script src="/static/htmx.min.js?v={{staticVersion "htmx.min.js"}}" defer></script>
@@ -11,24 +12,34 @@
   </head>
   <body class="admin-body">
     <aside class="admin-sidebar">
-      <a class="brand" href="/admin/">Go Content Go!</a>
+      <a class="brand" href="/admin/">
+        <img class="brand-icon" src="/static/brand/gcg-icon-dark.svg" alt="" width="24" height="24">
+        <span class="brand-name">Go Content Go</span>
+        <span class="brand-badge">gcg</span>
+      </a>
       <nav aria-label="Navegação principal">
-        <a href="/admin/">Visão geral</a>
-        <a href="/admin/posts">Posts</a>
-        <a href="/admin/pages">Páginas</a>
-        <a href="/admin/categories">Categorias</a>
-        <a href="/admin/builder">Construtor Visual</a>
-        <a href="/admin/media">Mídias</a>
-        <a href="/admin/appearance">Aparência</a>
-        <a href="/admin/appearance/menus">Menus</a>
-        <a href="/admin/appearance/sections">Cabeçalhos e Rodapés</a>
-        <a href="/admin/plugins">Plugins</a>
-        {{range .PluginMenus}}
-          <a href="{{.Path}}">↳ {{.Label}}</a>
+        <a href="/admin/"{{if eq .Mode "dashboard"}} class="is-active" aria-current="page"{{end}}>Visão geral</a>
+        <a href="/admin/posts"{{if and (or (eq .Mode "list") (eq .Mode "form")) (eq .ContentType "post")}} class="is-active" aria-current="page"{{end}}>Posts</a>
+        <a href="/admin/pages"{{if and (or (eq .Mode "list") (eq .Mode "form")) (eq .ContentType "page")}} class="is-active" aria-current="page"{{end}}>Páginas</a>
+        {{if or (eq .Role "admin") (eq .Role "editor") (eq .Role "")}}
+          <a href="/admin/categories"{{if eq .Mode "categories"}} class="is-active" aria-current="page"{{end}}>Categorias</a>
+          <a href="/admin/builder"{{if or (eq .Mode "builder-list") (eq .Mode "builder-edit")}} class="is-active" aria-current="page"{{end}}>Construtor Visual</a>
         {{end}}
-        <a href="/admin/users">Usuários</a>
-        <a href="/admin/security">Segurança (2FA)</a>
-        <a href="/admin/settings">Configurações</a>
+        <a href="/admin/media"{{if eq .Mode "media"}} class="is-active" aria-current="page"{{end}}>Mídias</a>
+        {{if or (eq .Role "admin") (eq .Role "")}}
+          <a href="/admin/appearance"{{if or (eq .Mode "appearance") (eq .Mode "theme-install")}} class="is-active" aria-current="page"{{end}}>Aparência</a>
+          <a href="/admin/appearance/menus"{{if eq .Mode "menus"}} class="is-active" aria-current="page"{{end}}>Menus</a>
+          <a href="/admin/appearance/sections"{{if eq .Mode "sections"}} class="is-active" aria-current="page"{{end}}>Cabeçalhos e Rodapés</a>
+          <a href="/admin/plugins"{{if or (eq .Mode "plugins") (eq .Mode "plugin-install") (eq .Mode "plugin-page")}} class="is-active" aria-current="page"{{end}}>Plugins</a>
+          {{range .PluginMenus}}
+            <a href="{{.Path}}">↳ {{.Label}}</a>
+          {{end}}
+          <a href="/admin/users"{{if eq .Mode "users"}} class="is-active" aria-current="page"{{end}}>Usuários</a>
+          <a href="/admin/redirects"{{if eq .Mode "redirects"}} class="is-active" aria-current="page"{{end}}>Redirecionamentos</a>
+          <a href="/admin/tools"{{if eq .Mode "tools"}} class="is-active" aria-current="page"{{end}}>Importar / Exportar</a>
+          <a href="/admin/settings"{{if eq .Mode "settings"}} class="is-active" aria-current="page"{{end}}>Configurações</a>
+        {{end}}
+        <a href="/admin/security"{{if eq .Mode "security"}} class="is-active" aria-current="page"{{end}}>Segurança (2FA)</a>
       </nav>
     </aside>
     <div class="admin-main">
@@ -55,11 +66,36 @@
           </div>
           <section class="welcome-card">
             <h2>Bem-vindo, {{.Username}}</h2>
-            <p>Seu espaço está pronto. Crie um post ou uma página para começar.</p>
-            <div class="quick-links">
-              <a href="/admin/posts">Gerenciar posts</a>
-              <a href="/admin/pages">Gerenciar páginas</a>
-              <a href="/admin/pages/new">Criar página</a>
+            <p class="muted">Resumo editorial e saúde técnica do seu site.</p>
+            <div class="kpi-grid mt-md">
+              <div class="kpi-card"><span class="kpi-value">{{.KPIs.PublishedPosts}}</span><span class="kpi-label">Posts publicados</span></div>
+              <div class="kpi-card"><span class="kpi-value">{{.KPIs.DraftPosts}}</span><span class="kpi-label">Rascunhos</span></div>
+              <div class="kpi-card"><span class="kpi-value">{{.KPIs.ScheduledPosts}}</span><span class="kpi-label">Agendados</span></div>
+              <div class="kpi-card"><span class="kpi-value">{{.KPIs.PublishedPages}}</span><span class="kpi-label">Páginas publicadas</span></div>
+              <div class="kpi-card"><span class="kpi-value">{{.KPIs.MediaCount}}</span><span class="kpi-label">Arquivos de mídia</span></div>
+              <div class="kpi-card"><span class="kpi-value">{{.KPIs.FormSubmissions}}</span><span class="kpi-label">Envios de formulários</span></div>
+            </div>
+            <div class="dashboard-actions mt-md">
+              <a class="button" href="/admin/posts">Gerenciar posts</a>
+              <a class="button" href="/admin/pages">Gerenciar páginas</a>
+              <a class="button" href="/admin/pages/new">Criar página</a>
+            </div>
+          </section>
+          <section class="welcome-card settings-card mt-lg">
+            <h2>Checklist de Saúde SEO &amp; Segurança</h2>
+            <div class="health-list mt-md">
+              {{range .HealthChecks}}
+                <article class="health-item">
+                  <div class="health-item-copy">
+                    <strong>{{.Label}}</strong>
+                    <p class="muted">{{.Message}}</p>
+                  </div>
+                  <div class="health-item-actions">
+                    <span class="status-badge {{if .OK}}status-published{{else}}status-warn{{end}}">{{if .OK}}OK{{else}}Atenção{{end}}</span>
+                    {{if and (not .OK) .Action}}<a class="button" href="{{.Action}}">Corrigir</a>{{end}}
+                  </div>
+                </article>
+              {{end}}
             </div>
           </section>
         {{else if eq .Mode "list"}}
@@ -76,7 +112,24 @@
               <a href="/admin/{{.ContentType}}s?trashed=1">Lixeira</a>
             {{end}}
           </div>
+          <form class="editor-toolbar filter-bar" method="get" action="/admin/{{.ContentType}}s">
+            {{if .Trashed}}<input type="hidden" name="trashed" value="1">{{end}}
+            <input name="q" type="search" value="{{.FilterQuery}}" placeholder="Buscar por título ou slug…">
+            <select name="status">
+              <option value="">Todos os status</option>
+              <option value="published" {{if eq .FilterStatus "published"}}selected{{end}}>Publicados</option>
+              <option value="draft" {{if eq .FilterStatus "draft"}}selected{{end}}>Rascunhos</option>
+            </select>
+            <button class="button" type="submit">Filtrar</button>
+          </form>
           {{template "content-list-table" .}}
+          {{if and .AdminPagination (gt .AdminPagination.TotalPages 1)}}
+            <nav class="editor-actions mt-md" aria-label="Paginação">
+              {{if .AdminPagination.HasPrev}}<a class="button" href="{{.AdminPagination.PrevURL}}">← Anterior</a>{{end}}
+              <span class="muted">Página {{.AdminPagination.Page}} de {{.AdminPagination.TotalPages}} ({{.AdminPagination.TotalItems}} itens)</span>
+              {{if .AdminPagination.HasNext}}<a class="button" href="{{.AdminPagination.NextURL}}">Próxima →</a>{{end}}
+            </nav>
+          {{end}}
         {{else if eq .Mode "form"}}
           <div class="page-heading">
             <div><p class="eyebrow">{{.ContentTypeLabel}}</p><h1>{{if .Item.ID}}Editar{{else}}Criar{{end}} {{.ContentTypeLabel}}</h1></div>
@@ -90,9 +143,17 @@
               <label for="slug">Slug</label>
               <div class="slug-field"><span>/</span><input id="slug" name="slug" type="text" maxlength="100" value="{{.Item.Slug}}" placeholder="gerado-a-partir-do-titulo" pattern="[a-z0-9]+(?:-[a-z0-9]+)*"></div>
               <label for="content">Conteúdo <span class="muted">Markdown</span></label>
-              <div class="editor-toolbar">
+              <div class="editor-toolbar" data-autosave-key="gocg_draft_{{.ContentType}}_{{.Item.ID}}">
+                <button class="button" type="button" data-md-action="bold" title="Negrito"><strong>B</strong></button>
+                <button class="button" type="button" data-md-action="italic" title="Itálico"><em>I</em></button>
+                <button class="button" type="button" data-md-action="h2" title="Título H2">H2</button>
+                <button class="button" type="button" data-md-action="link" title="Link">Link</button>
+                <button class="button" type="button" data-md-action="list" title="Lista">Lista</button>
+                <button class="button" type="button" data-md-action="quote" title="Citação">Citação</button>
+                <button class="button" type="button" data-md-action="code" title="Código">Código</button>
                 <button class="button" type="button" data-picker-open="inline"
                   hx-get="/admin/media/picker?mode=inline" hx-target="#media-picker-content" hx-swap="innerHTML">Inserir mídia</button>
+                <span id="autosave-status" class="muted" aria-live="polite"></span>
               </div>
               <textarea id="content" name="content" rows="18" maxlength="1048576"
                 hx-post="/admin/preview" hx-trigger="keyup changed delay:500ms" hx-include="closest form"
@@ -178,25 +239,44 @@
             <aside class="editor-sidebar">
               <section class="editor-panel">
                 <h2>Publicação</h2>
-                <label for="status">Status</label>
                 {{if eq .Role "author"}}
                   <input id="status" name="status" type="hidden" value="draft">
                   <p class="muted">Seu conteúdo será salvo como rascunho para revisão de um editor.</p>
                 {{else}}
-                  <select id="status" name="status">
-                    <option value="draft" {{if eq .Item.Status "draft"}}selected{{end}}>Rascunho</option>
-                    <option value="published" {{if eq .Item.Status "published"}}selected{{end}}>Publicado</option>
-                  </select>
+                  <div class="field-group">
+                    <label for="status">Status</label>
+                    <select id="status" name="status">
+                      <option value="draft" {{if eq .Item.Status "draft"}}selected{{end}}>Rascunho</option>
+                      <option value="published" {{if eq .Item.Status "published"}}selected{{end}}>Publicado</option>
+                    </select>
+                  </div>
+                  <div class="schedule-field" data-schedule-widget>
+                    <label for="scheduled_at_local">Agendar publicação <span class="muted">(opcional)</span></label>
+                    <input id="scheduled_at" name="scheduled_at" type="hidden" value="{{.Item.ScheduledAt}}">
+                    <input id="scheduled_at_local" class="schedule-picker" type="datetime-local" data-schedule-input>
+                    <div class="schedule-presets">
+                      <button class="schedule-chip" type="button" data-schedule-preset="1h">+1 hora</button>
+                      <button class="schedule-chip" type="button" data-schedule-preset="tomorrow9">Amanhã 09:00</button>
+                      <button class="schedule-chip" type="button" data-schedule-preset="monday9">Segunda 09:00</button>
+                      <button class="schedule-chip schedule-chip-clear" type="button" data-schedule-preset="clear">Limpar</button>
+                    </div>
+                    <p class="muted schedule-hint" data-schedule-hint>Escolha data e hora no calendário para publicar automaticamente.</p>
+                  </div>
                 {{end}}
                 <button class="button button-primary" type="submit">Salvar {{.ContentTypeLabel}}</button>
               </section>
               <section class="editor-panel">
                 <h2>Imagem destacada</h2>
-                <label for="featured_image">Caminho da imagem ou URL externa</label>
-                <input id="featured_image" name="featured_image" type="text" maxlength="2048"
-                  value="{{.Item.FeaturedImage}}" placeholder="https://… ou /uploads/…">
-                <button class="button" type="button" data-picker-open="featured"
-                  hx-get="/admin/media/picker?mode=featured" hx-target="#media-picker-content" hx-swap="innerHTML">Selecionar imagem destacada</button>
+                <div class="field-group">
+                  <label for="featured_image">URL ou arquivo de mídia</label>
+                  <input id="featured_image" name="featured_image" type="text" maxlength="2048"
+                    value="{{.Item.FeaturedImage}}" placeholder="https://… ou /uploads/…">
+                </div>
+                <div class="button-group">
+                  <button class="button" type="button" data-picker-open="featured"
+                    hx-get="/admin/media/picker?mode=featured" hx-target="#media-picker-content" hx-swap="innerHTML">Selecionar imagem destacada</button>
+                  <button class="button" type="button" data-clear-featured>Remover</button>
+                </div>
                 <div id="featured-image-preview">
                   {{if .Item.FeaturedImage}}<img class="featured-preview" src="{{.Item.FeaturedImage}}" alt="Prévia da imagem destacada">{{else}}<p class="muted">Nenhuma imagem selecionada.</p>{{end}}
                 </div>
@@ -205,35 +285,59 @@
                 <section class="editor-panel">
                   <h2>Categorias</h2>
                   {{if .Categories}}
-                    <label for="category_ids">Selecionar categorias</label>
-                    <select id="category_ids" name="category_ids" multiple size="5">
+                    <div class="category-checklist" role="group" aria-label="Selecionar categorias">
                       {{range .Categories}}
-                        <option value="{{.ID}}" {{if index $.SelectedCategories .ID}}selected{{end}}>{{repeat "— " .Depth}}{{.Name}}</option>
+                        <label class="checkbox-inline category-checklist-item">
+                          <input type="checkbox" name="category_ids" value="{{.ID}}" {{if index $.SelectedCategories .ID}}checked{{end}}>
+                          <span>{{repeat "— " .Depth}}{{.Name}}</span>
+                        </label>
                       {{end}}
-                    </select>
-                  {{else}}<p class="muted">Nenhuma categoria criada ainda.</p>{{end}}
-                  <label for="new_category">Criar categoria</label>
-                  <input id="new_category" name="new_category" type="text" maxlength="80"
-                    value="{{.NewCategory}}" placeholder="Ex.: Notícias">
-                  <label for="new_category_parent_id">Categoria superior</label>
-                  <select id="new_category_parent_id" name="new_category_parent_id">
-                    <option value="0">Nenhuma</option>
-                    {{range .Categories}}<option value="{{.ID}}">{{repeat "— " .Depth}}{{.Name}}</option>{{end}}
-                  </select>
-                  <label for="tags">Tags <span class="muted">separadas por vírgula</span></label>
-                  <input id="tags" name="tags" type="text" maxlength="1000" value="{{.TagInput}}" placeholder="produto, novidades">
+                    </div>
+                  {{else}}
+                    <p class="muted">Nenhuma categoria criada ainda.</p>
+                  {{end}}
+                  <details class="inline-disclosure"{{if .NewCategory}} open{{end}}>
+                    <summary class="inline-disclosure-summary">+ Criar nova categoria</summary>
+                    <div class="field-stack mt-sm">
+                      <div class="field-group">
+                        <label for="new_category">Nome</label>
+                        <input id="new_category" name="new_category" type="text" maxlength="80"
+                          value="{{.NewCategory}}" placeholder="Ex.: Notícias">
+                      </div>
+                      <div class="field-group">
+                        <label for="new_category_parent_id">Categoria pai</label>
+                        <select id="new_category_parent_id" name="new_category_parent_id">
+                          <option value="0">Nenhuma</option>
+                          {{range .Categories}}<option value="{{.ID}}">{{repeat "— " .Depth}}{{.Name}}</option>{{end}}
+                        </select>
+                      </div>
+                    </div>
+                  </details>
+                </section>
+                <section class="editor-panel" data-tags-widget>
+                  <h2>Tags</h2>
+                  <div class="field-group">
+                    <label for="tags">Adicionar tags <span class="muted">(separe com vírgula)</span></label>
+                    <input id="tags" name="tags" type="text" maxlength="1000" value="{{.TagInput}}" placeholder="produto, novidades, guia">
+                  </div>
+                  <div class="tag-chips" data-tags-chips aria-live="polite"></div>
                 </section>
               {{else if eq .ContentType "page"}}
                 <section class="editor-panel">
-                  <h2>Layout Visual (Template)</h2>
-                  <label for="layout_id">Usar layout modular</label>
-                  <select id="layout_id" name="layout_id">
-                    <option value="0">Layout padrão da página (Markdown)</option>
-                    {{range .Layouts}}
-                      <option value="{{.ID}}" {{if eq $.Item.LayoutID .ID}}selected{{end}}>{{.Name}}</option>
-                    {{end}}
-                  </select>
-                  <p class="muted">Aplique um layout criado no <a href="/admin/builder">Construtor Visual</a> nesta página.</p>
+                  <h2>Layout Visual</h2>
+                  <div class="field-group">
+                    <label for="layout_id">Template da página</label>
+                    <select id="layout_id" name="layout_id">
+                      <option value="0">Layout padrão (Markdown)</option>
+                      {{range .Layouts}}
+                        <option value="{{.ID}}" {{if eq $.Item.LayoutID .ID}}selected{{end}}>{{.Name}}</option>
+                      {{end}}
+                    </select>
+                    <p class="muted">Aplique um layout modular criado no Construtor Visual.</p>
+                  </div>
+                  <div>
+                    <a class="button" href="/admin/builder">Abrir Construtor Visual</a>
+                  </div>
                 </section>
               {{end}}
             </aside>
@@ -247,6 +351,27 @@
               </div>
             </dialog>
           </form>
+          {{if .Revisions}}
+            <section class="welcome-card settings-card mt-lg">
+              <h2>Histórico de revisões</h2>
+              <p class="muted">Restaure uma versão anterior em 1 clique.</p>
+              <div class="content-list">
+                {{range .Revisions}}
+                  <article class="content-row">
+                    <div>
+                      <strong>{{.Title}}</strong>
+                      <p class="muted">{{formatDateTime .CreatedAt}} {{if .Author}}· por {{.Author}}{{end}} · {{.Status}}</p>
+                    </div>
+                    <form method="post" action="/admin/content/{{$.Item.ID}}/revisions/{{.ID}}/restore">
+                      <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                      <input type="hidden" name="content_type" value="{{$.ContentType}}">
+                      <button class="button" type="submit">Restaurar</button>
+                    </form>
+                  </article>
+                {{end}}
+              </div>
+            </section>
+          {{end}}
         {{else if eq .Mode "media"}}
           <div class="page-heading">
             <div><p class="eyebrow">Biblioteca</p><h1>Mídias</h1></div>
@@ -474,172 +599,564 @@
           <section class="content-list users-list">
             <h2>Usuários existentes</h2>
             {{range .Users}}
-              <article class="content-row"><strong>{{.Username}}</strong><span>{{.Role}}</span></article>
+              <article class="welcome-card settings-card user-card">
+                <div class="user-card-row">
+                  <div class="user-card-identity">
+                    <strong>{{.Username}}</strong>
+                    <span class="status-badge {{if .Active}}status-published{{else}}status-warn{{end}}">{{if .Active}}Ativo{{else}}Desativado{{end}}</span>
+                    <span class="status-badge">{{.Role}}</span>
+                    {{if .TOTPEnabled}}<span class="status-badge status-published">2FA</span>{{end}}
+                  </div>
+                  <details class="action-menu">
+                    <summary class="button">Gerenciar ▾</summary>
+                    <div class="action-menu-panel">
+                      <form method="post" action="/admin/users/{{.ID}}/role" class="action-menu-form">
+                        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                        <label for="user-role-{{.ID}}">Papel</label>
+                        <div class="inline-form">
+                          <select id="user-role-{{.ID}}" name="role">
+                            <option value="author" {{if eq .Role "author"}}selected{{end}}>Autor</option>
+                            <option value="editor" {{if eq .Role "editor"}}selected{{end}}>Editor</option>
+                            <option value="admin" {{if eq .Role "admin"}}selected{{end}}>Admin</option>
+                          </select>
+                          <button class="button" type="submit">Salvar</button>
+                        </div>
+                      </form>
+                      <form method="post" action="/admin/users/{{.ID}}/password" class="action-menu-form">
+                        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                        <label for="user-pass-{{.ID}}">Nova senha</label>
+                        <div class="inline-form">
+                          <input id="user-pass-{{.ID}}" name="password" type="password" minlength="12" maxlength="72" placeholder="Mínimo 12 caracteres" required>
+                          <button class="button" type="submit">Alterar</button>
+                        </div>
+                      </form>
+                      <div class="action-menu-footer button-group">
+                        <form method="post" action="/admin/users/{{.ID}}/toggle">
+                          <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                          <input type="hidden" name="active" value="{{if .Active}}0{{else}}1{{end}}">
+                          <button class="button" type="submit">{{if .Active}}Desativar{{else}}Reativar{{end}}</button>
+                        </form>
+                        <form method="post" action="/admin/users/{{.ID}}/revoke-sessions">
+                          <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                          <button class="button" type="submit">Revogar sessões</button>
+                        </form>
+                        <form method="post" action="/admin/users/{{.ID}}/delete">
+                          <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                          <button class="button button-danger" type="submit">Excluir</button>
+                        </form>
+                      </div>
+                    </div>
+                  </details>
+                </div>
+              </article>
             {{else}}
               <p class="empty-state">Nenhum usuário cadastrado.</p>
             {{end}}
           </section>
         {{else if eq .Mode "settings"}}
           <div class="page-heading"><div><p class="eyebrow">Administração</p><h1>Configurações</h1></div></div>
-          <section class="welcome-card settings-card">
-            <h2>Identidade do site</h2>
-            <p>Defina o nome, a descrição e o logotipo que aparecem no site público.</p>
-            <form class="editor-form" method="post" action="/admin/settings/save">
-              <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-              <input type="hidden" name="show_on_front" value="{{.SiteSettings.ShowOnFront}}">
-              <input type="hidden" name="page_on_front" value="{{.SiteSettings.PageOnFront}}">
-              <input type="hidden" name="home_intro_title" value="{{.SiteSettings.HomeIntroTitle}}">
-              <input type="hidden" name="home_posts_title" value="{{.SiteSettings.HomePostsTitle}}">
-              <input type="hidden" name="site_url" value="{{.SiteSettings.SiteURL}}">
-              <input type="hidden" name="seo_default_description" value="{{.SiteSettings.SEODefaultDescription}}">
-              <input type="hidden" name="seo_default_og_image" value="{{.SiteSettings.SEODefaultOGImage}}">
-              <input type="hidden" name="seo_twitter_handle" value="{{.SiteSettings.SEOTwitterHandle}}">
-              <input type="hidden" name="seo_robots_indexing" value="{{.SiteSettings.SEORobotsIndexing}}">
-              <label for="site-title">Título do site</label>
-              <input id="site-title" name="site_title" type="text" maxlength="120" value="{{.SiteSettings.Title}}" required>
-              <label for="site-tagline">Descrição curta / slogan</label>
-              <input id="site-tagline" name="site_tagline" type="text" maxlength="250" value="{{.SiteSettings.Tagline}}">
-              <label for="site-logo">Logotipo</label>
-              <select id="site-logo" name="site_logo">
-                <option value="">Sem logotipo — exibir título em texto</option>
-                {{range .MediaItems}}
-                  {{if hasPrefix .FileType "image/"}}
-                    <option value="{{.Filepath}}" {{if eq $.SiteSettings.Logo .Filepath}}selected{{end}}>{{.Filename}}</option>
-                  {{end}}
-                {{end}}
-              </select>
-              {{if .SiteSettings.Logo}}<p class="muted">Logotipo atual: <a href="{{.SiteSettings.Logo}}" target="_blank" rel="noreferrer">visualizar arquivo</a></p>{{end}}
-              <p class="muted"><a href="/admin/media">Enviar ou gerenciar imagens na Biblioteca de Mídias</a>.</p>
-              <button class="button button-primary" type="submit">Salvar identidade</button>
-            </form>
-          </section>
-          <section class="welcome-card settings-card">
-            <h2>Configurações de leitura</h2>
-            <p>Escolha o que será exibido na página inicial.</p>
-            <form class="editor-form" method="post" action="/admin/settings/save">
-              <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-              <input type="hidden" name="site_title" value="{{.SiteSettings.Title}}">
-              <input type="hidden" name="site_tagline" value="{{.SiteSettings.Tagline}}">
-              <input type="hidden" name="site_logo" value="{{.SiteSettings.Logo}}">
-              <input type="hidden" name="site_url" value="{{.SiteSettings.SiteURL}}">
-              <input type="hidden" name="seo_default_description" value="{{.SiteSettings.SEODefaultDescription}}">
-              <input type="hidden" name="seo_default_og_image" value="{{.SiteSettings.SEODefaultOGImage}}">
-              <input type="hidden" name="seo_twitter_handle" value="{{.SiteSettings.SEOTwitterHandle}}">
-              <input type="hidden" name="seo_robots_indexing" value="{{.SiteSettings.SEORobotsIndexing}}">
-              <label for="home-intro-title">Título de introdução</label>
-              <input id="home-intro-title" name="home_intro_title" type="text" maxlength="120" value="{{.SiteSettings.HomeIntroTitle}}" required>
-              <label for="home-posts-title">Título da seção de posts</label>
-              <input id="home-posts-title" name="home_posts_title" type="text" maxlength="120" value="{{.SiteSettings.HomePostsTitle}}" required>
-              <label for="show-on-front">Página inicial exibe</label>
-              <select id="show-on-front" name="show_on_front">
-                <option value="posts" {{if eq .SiteSettings.ShowOnFront "posts"}}selected{{end}}>Posts recentes</option>
-                <option value="page" {{if eq .SiteSettings.ShowOnFront "page"}}selected{{end}}>Uma página estática</option>
-              </select>
-              <label for="page-on-front">Página publicada</label>
-              <select id="page-on-front" name="page_on_front">
-                <option value="">Selecione uma página</option>
-                {{range .Items}}
-                  <option value="{{.ID}}" {{if eq $.SiteSettings.PageOnFront .ID}}selected{{end}}>{{.Title}}</option>
-                {{end}}
-              </select>
-              <button class="button button-primary" type="submit">Salvar leitura</button>
-            </form>
-          </section>
-          <section class="welcome-card settings-card">
-            <h2>SEO e Redes Sociais</h2>
-            <p>Configurações globais para indexação em buscadores e compartilhamento em redes sociais.</p>
-            <form class="editor-form" method="post" action="/admin/settings/save">
-              <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-              <input type="hidden" name="site_title" value="{{.SiteSettings.Title}}">
-              <input type="hidden" name="site_tagline" value="{{.SiteSettings.Tagline}}">
-              <input type="hidden" name="site_logo" value="{{.SiteSettings.Logo}}">
-              <input type="hidden" name="show_on_front" value="{{.SiteSettings.ShowOnFront}}">
-              <input type="hidden" name="page_on_front" value="{{.SiteSettings.PageOnFront}}">
-              <input type="hidden" name="home_intro_title" value="{{.SiteSettings.HomeIntroTitle}}">
-              <input type="hidden" name="home_posts_title" value="{{.SiteSettings.HomePostsTitle}}">
-
-              <label for="site-url">URL Canônica do Site</label>
-              <input id="site-url" name="site_url" type="url" maxlength="2000" value="{{.SiteSettings.SiteURL}}" placeholder="https://meusite.com">
-              <p class="muted">Usada para gerar links canônicos absolutos e tags Open Graph.</p>
-
-              <label for="seo-default-description">Meta Descrição Padrão (Fallback)</label>
-              <textarea id="seo-default-description" name="seo_default_description" rows="3" maxlength="500" placeholder="Descrição utilizada quando uma publicação não definir sua própria">{{.SiteSettings.SEODefaultDescription}}</textarea>
-
-              <label for="seo-default-og-image">Imagem Social Padrão (Open Graph)</label>
-              <select id="seo-default-og-image" name="seo_default_og_image">
-                <option value="">Sem imagem social padrão</option>
-                {{range .MediaItems}}
-                  {{if hasPrefix .FileType "image/"}}
-                    <option value="{{.Filepath}}" {{if eq $.SiteSettings.SEODefaultOGImage .Filepath}}selected{{end}}>{{.Filename}}</option>
-                  {{end}}
-                {{end}}
-              </select>
-              {{if .SiteSettings.SEODefaultOGImage}}<p class="muted">Imagem padrão atual: <a href="{{.SiteSettings.SEODefaultOGImage}}" target="_blank" rel="noreferrer">visualizar arquivo</a></p>{{end}}
-
-              <label for="seo-twitter-handle">Perfil do Twitter / X</label>
-              <input id="seo-twitter-handle" name="seo_twitter_handle" type="text" maxlength="100" value="{{.SiteSettings.SEOTwitterHandle}}" placeholder="@seuperfil">
-
-              <label for="seo-robots-indexing">Visibilidade para Mecanismos de Busca</label>
-              <select id="seo-robots-indexing" name="seo_robots_indexing">
-                <option value="index" {{if eq .SiteSettings.SEORobotsIndexing "index"}}selected{{end}}>Permitir que mecanismos de busca indexem este site (index, follow)</option>
-                <option value="noindex" {{if eq .SiteSettings.SEORobotsIndexing "noindex"}}selected{{end}}>Evitar que mecanismos de busca indexem este site (noindex, nofollow)</option>
-              </select>
-              <p class="muted">Aviso para que robôs de busca não indexem o conteúdo.</p>
-
-              <button class="button button-primary" type="submit">Salvar SEO</button>
-            </form>
-          </section>
-          <section class="welcome-card settings-card">
-            <h2>Banco de dados</h2>
-            <p>Crie uma cópia consistente do SQLite sem interromper o servidor ou baixe um backup agora.</p>
-            <form method="post" action="/admin/settings/backup">
-              <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-              <button class="button button-primary" type="submit">Criar backup local</button>
-            </form>
-            <p><a class="button" href="/admin/settings/backup/download">Baixar backup agora</a></p>
-            <form method="post" action="/admin/settings/optimize">
-              <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-              <button class="button" type="submit">Otimizar banco de dados</button>
-            </form>
-          </section>
-          <section class="welcome-card settings-card">
-            <h2>Auditoria de permissões de arquivos</h2>
-            <p>Verificação automática dos diretórios essenciais do CMS.</p>
-            <div class="content-list">
-              {{range .PermissionFindings}}
-                <article class="content-row">
-                  <div>
-                    <strong>{{.Path}}</strong>
-                    <p class="muted">{{.Detail}}</p>
+          <div class="settings-stack">
+            <details class="welcome-card settings-card settings-accordion" open>
+              <summary class="settings-accordion-summary">
+                <div>
+                  <h2>Identidade do site</h2>
+                  <p class="muted">Nome, descrição, logotipo, favicon e Apple Touch Icon.</p>
+                </div>
+              </summary>
+              <form class="settings-form mt-md" method="post" action="/admin/settings/save">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <input type="hidden" name="show_on_front" value="{{.SiteSettings.ShowOnFront}}">
+                <input type="hidden" name="page_on_front" value="{{.SiteSettings.PageOnFront}}">
+                <input type="hidden" name="home_intro_title" value="{{.SiteSettings.HomeIntroTitle}}">
+                <input type="hidden" name="home_posts_title" value="{{.SiteSettings.HomePostsTitle}}">
+                <input type="hidden" name="site_url" value="{{.SiteSettings.SiteURL}}">
+                <input type="hidden" name="seo_default_description" value="{{.SiteSettings.SEODefaultDescription}}">
+                <input type="hidden" name="seo_default_og_image" value="{{.SiteSettings.SEODefaultOGImage}}">
+                <input type="hidden" name="seo_twitter_handle" value="{{.SiteSettings.SEOTwitterHandle}}">
+                <input type="hidden" name="seo_robots_indexing" value="{{.SiteSettings.SEORobotsIndexing}}">
+                <input type="hidden" name="auto_redirect_slug_change" value="{{if .SiteSettings.AutoRedirectSlugChange}}1{{end}}">
+                <div class="field-group">
+                  <label for="site-title">Título do site</label>
+                  <input id="site-title" name="site_title" type="text" maxlength="120" value="{{.SiteSettings.Title}}" required>
+                </div>
+                <div class="field-group">
+                  <label for="site-tagline">Descrição curta / slogan</label>
+                  <input id="site-tagline" name="site_tagline" type="text" maxlength="250" value="{{.SiteSettings.Tagline}}">
+                </div>
+                <div class="field-group">
+                  <label for="site-logo">Logotipo</label>
+                  <select id="site-logo" name="site_logo">
+                    <option value="">Sem logotipo — exibir título em texto</option>
+                    {{range .MediaItems}}
+                      {{if hasPrefix .FileType "image/"}}
+                        <option value="{{.Filepath}}" {{if eq $.SiteSettings.Logo .Filepath}}selected{{end}}>{{.Filename}}</option>
+                      {{end}}
+                    {{end}}
+                  </select>
+                  {{if .SiteSettings.Logo}}<p class="muted">Logotipo atual: <a href="{{.SiteSettings.Logo}}" target="_blank" rel="noreferrer">visualizar arquivo</a></p>{{end}}
+                </div>
+                <div class="form-row-2">
+                  <div class="field-group">
+                    <label for="site-favicon">Favicon (ícone da aba e /favicon.ico)</label>
+                    <select id="site-favicon" name="site_favicon">
+                      <option value="">Sem favicon</option>
+                      {{range .MediaItems}}
+                        {{if hasPrefix .FileType "image/"}}
+                          <option value="{{.Filepath}}" {{if eq $.SiteSettings.Favicon .Filepath}}selected{{end}}>{{.Filename}}</option>
+                        {{end}}
+                      {{end}}
+                    </select>
                   </div>
-                  <span class="status-badge {{if eq .Status "ok"}}status-published{{end}}">{{.Status}}{{if .Mode}} ({{.Mode}}){{end}}</span>
-                </article>
-              {{end}}
-            </div>
+                  <div class="field-group">
+                    <label for="site-apple-touch-icon">Apple Touch Icon (iOS / favoritos)</label>
+                    <select id="site-apple-touch-icon" name="site_apple_touch_icon">
+                      <option value="">Sem Apple Touch Icon</option>
+                      {{range .MediaItems}}
+                        {{if hasPrefix .FileType "image/"}}
+                          <option value="{{.Filepath}}" {{if eq $.SiteSettings.AppleTouchIcon .Filepath}}selected{{end}}>{{.Filename}}</option>
+                        {{end}}
+                      {{end}}
+                    </select>
+                  </div>
+                </div>
+                <div class="button-group">
+                  <button class="button button-primary" type="submit">Salvar identidade</button>
+                  <a class="button" href="/admin/media">Abrir Biblioteca de Mídias</a>
+                </div>
+              </form>
+            </details>
+
+            <details class="welcome-card settings-card settings-accordion">
+              <summary class="settings-accordion-summary">
+                <div>
+                  <h2>Configurações de leitura</h2>
+                  <p class="muted">Escolha o que será exibido na página inicial.</p>
+                </div>
+              </summary>
+              <form class="settings-form mt-md" method="post" action="/admin/settings/save">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <input type="hidden" name="site_title" value="{{.SiteSettings.Title}}">
+                <input type="hidden" name="site_tagline" value="{{.SiteSettings.Tagline}}">
+                <input type="hidden" name="site_logo" value="{{.SiteSettings.Logo}}">
+                <input type="hidden" name="site_favicon" value="{{.SiteSettings.Favicon}}">
+                <input type="hidden" name="site_apple_touch_icon" value="{{.SiteSettings.AppleTouchIcon}}">
+                <input type="hidden" name="site_url" value="{{.SiteSettings.SiteURL}}">
+                <input type="hidden" name="seo_default_description" value="{{.SiteSettings.SEODefaultDescription}}">
+                <input type="hidden" name="seo_default_og_image" value="{{.SiteSettings.SEODefaultOGImage}}">
+                <input type="hidden" name="seo_twitter_handle" value="{{.SiteSettings.SEOTwitterHandle}}">
+                <input type="hidden" name="seo_robots_indexing" value="{{.SiteSettings.SEORobotsIndexing}}">
+                <input type="hidden" name="auto_redirect_slug_change" value="{{if .SiteSettings.AutoRedirectSlugChange}}1{{end}}">
+                <div class="form-row-2">
+                  <div class="field-group">
+                    <label for="home-intro-title">Título de introdução</label>
+                    <input id="home-intro-title" name="home_intro_title" type="text" maxlength="120" value="{{.SiteSettings.HomeIntroTitle}}" required>
+                  </div>
+                  <div class="field-group">
+                    <label for="home-posts-title">Título da seção de posts</label>
+                    <input id="home-posts-title" name="home_posts_title" type="text" maxlength="120" value="{{.SiteSettings.HomePostsTitle}}" required>
+                  </div>
+                </div>
+                <div class="form-row-2">
+                  <div class="field-group">
+                    <label for="show-on-front">Página inicial exibe</label>
+                    <select id="show-on-front" name="show_on_front">
+                      <option value="posts" {{if eq .SiteSettings.ShowOnFront "posts"}}selected{{end}}>Posts recentes</option>
+                      <option value="page" {{if eq .SiteSettings.ShowOnFront "page"}}selected{{end}}>Uma página estática</option>
+                    </select>
+                  </div>
+                  <div class="field-group">
+                    <label for="page-on-front">Página publicada</label>
+                    <select id="page-on-front" name="page_on_front">
+                      <option value="">Selecione uma página</option>
+                      {{range .Items}}
+                        <option value="{{.ID}}" {{if eq $.SiteSettings.PageOnFront .ID}}selected{{end}}>{{.Title}}</option>
+                      {{end}}
+                    </select>
+                  </div>
+                </div>
+                <div><button class="button button-primary" type="submit">Salvar leitura</button></div>
+              </form>
+            </details>
+
+            <details class="welcome-card settings-card settings-accordion">
+              <summary class="settings-accordion-summary">
+                <div>
+                  <h2>SEO e Redes Sociais</h2>
+                  <p class="muted">URL canônica, Open Graph, indexação e redirecionamento automático.</p>
+                </div>
+              </summary>
+              <form class="settings-form mt-md" method="post" action="/admin/settings/save">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <input type="hidden" name="site_title" value="{{.SiteSettings.Title}}">
+                <input type="hidden" name="site_tagline" value="{{.SiteSettings.Tagline}}">
+                <input type="hidden" name="site_logo" value="{{.SiteSettings.Logo}}">
+                <input type="hidden" name="site_favicon" value="{{.SiteSettings.Favicon}}">
+                <input type="hidden" name="site_apple_touch_icon" value="{{.SiteSettings.AppleTouchIcon}}">
+                <input type="hidden" name="show_on_front" value="{{.SiteSettings.ShowOnFront}}">
+                <input type="hidden" name="page_on_front" value="{{.SiteSettings.PageOnFront}}">
+                <input type="hidden" name="home_intro_title" value="{{.SiteSettings.HomeIntroTitle}}">
+                <input type="hidden" name="home_posts_title" value="{{.SiteSettings.HomePostsTitle}}">
+
+                <div class="field-group">
+                  <label for="site-url">URL Canônica do Site</label>
+                  <input id="site-url" name="site_url" type="url" maxlength="2000" value="{{.SiteSettings.SiteURL}}" placeholder="https://meusite.com">
+                  <p class="muted">Usada para gerar links canônicos absolutos, sitemap e tags Open Graph.</p>
+                </div>
+
+                <div class="field-group">
+                  <label for="seo-default-description">Meta Descrição Padrão (Fallback)</label>
+                  <textarea id="seo-default-description" name="seo_default_description" rows="3" maxlength="500" placeholder="Descrição utilizada quando uma publicação não definir sua própria">{{.SiteSettings.SEODefaultDescription}}</textarea>
+                </div>
+
+                <div class="form-row-2">
+                  <div class="field-group">
+                    <label for="seo-default-og-image">Imagem Social Padrão (Open Graph)</label>
+                    <select id="seo-default-og-image" name="seo_default_og_image">
+                      <option value="">Sem imagem social padrão</option>
+                      {{range .MediaItems}}
+                        {{if hasPrefix .FileType "image/"}}
+                          <option value="{{.Filepath}}" {{if eq $.SiteSettings.SEODefaultOGImage .Filepath}}selected{{end}}>{{.Filename}}</option>
+                        {{end}}
+                      {{end}}
+                    </select>
+                    {{if .SiteSettings.SEODefaultOGImage}}<p class="muted">Atual: <a href="{{.SiteSettings.SEODefaultOGImage}}" target="_blank" rel="noreferrer">visualizar</a></p>{{end}}
+                  </div>
+                  <div class="field-group">
+                    <label for="seo-twitter-handle">Perfil do Twitter / X</label>
+                    <input id="seo-twitter-handle" name="seo_twitter_handle" type="text" maxlength="100" value="{{.SiteSettings.SEOTwitterHandle}}" placeholder="@seuperfil">
+                  </div>
+                </div>
+
+                <div class="field-group">
+                  <label for="seo-robots-indexing">Visibilidade para Mecanismos de Busca</label>
+                  <select id="seo-robots-indexing" name="seo_robots_indexing">
+                    <option value="index" {{if eq .SiteSettings.SEORobotsIndexing "index"}}selected{{end}}>Permitir que mecanismos de busca indexem este site (index, follow)</option>
+                    <option value="noindex" {{if eq .SiteSettings.SEORobotsIndexing "noindex"}}selected{{end}}>Evitar que mecanismos de busca indexem este site (noindex, nofollow)</option>
+                  </select>
+                </div>
+
+                <label class="checkbox-inline">
+                  <input type="checkbox" name="auto_redirect_slug_change" value="1" {{if .SiteSettings.AutoRedirectSlugChange}}checked{{end}}>
+                  <span>Criar redirecionamento 301 automático ao alterar o slug de posts ou páginas publicados</span>
+                </label>
+
+                <div><button class="button button-primary" type="submit">Salvar SEO</button></div>
+              </form>
+            </details>
+
+            <details class="welcome-card settings-card settings-accordion">
+              <summary class="settings-accordion-summary">
+                <div>
+                  <h2>Notificações de Formulários (Webhook / SMTP)</h2>
+                  <p class="muted">Alertas automáticos quando um visitante enviar um formulário.</p>
+                </div>
+              </summary>
+              <form class="settings-form mt-md" method="post" action="/admin/settings/save">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <input type="hidden" name="site_title" value="{{.SiteSettings.Title}}">
+                <input type="hidden" name="site_tagline" value="{{.SiteSettings.Tagline}}">
+                <input type="hidden" name="site_logo" value="{{.SiteSettings.Logo}}">
+                <input type="hidden" name="site_favicon" value="{{.SiteSettings.Favicon}}">
+                <input type="hidden" name="site_apple_touch_icon" value="{{.SiteSettings.AppleTouchIcon}}">
+                <input type="hidden" name="show_on_front" value="{{.SiteSettings.ShowOnFront}}">
+                <input type="hidden" name="page_on_front" value="{{.SiteSettings.PageOnFront}}">
+                <input type="hidden" name="home_intro_title" value="{{.SiteSettings.HomeIntroTitle}}">
+                <input type="hidden" name="home_posts_title" value="{{.SiteSettings.HomePostsTitle}}">
+                <input type="hidden" name="site_url" value="{{.SiteSettings.SiteURL}}">
+                <input type="hidden" name="seo_default_description" value="{{.SiteSettings.SEODefaultDescription}}">
+                <input type="hidden" name="seo_default_og_image" value="{{.SiteSettings.SEODefaultOGImage}}">
+                <input type="hidden" name="seo_twitter_handle" value="{{.SiteSettings.SEOTwitterHandle}}">
+                <input type="hidden" name="seo_robots_indexing" value="{{.SiteSettings.SEORobotsIndexing}}">
+                <input type="hidden" name="auto_redirect_slug_change" value="{{if .SiteSettings.AutoRedirectSlugChange}}1{{end}}">
+
+                <div class="form-row-2">
+                  <div class="field-group">
+                    <label for="form-webhook-url">URL do Webhook (POST JSON)</label>
+                    <input id="form-webhook-url" name="form_webhook_url" type="url" value="{{.SiteSettings.FormWebhookURL}}" placeholder="https://hooks.exemplo.com/forms">
+                  </div>
+                  <div class="field-group">
+                    <label for="form-notify-email">E-mail de destino (SMTP)</label>
+                    <input id="form-notify-email" name="form_notify_email" type="email" value="{{.SiteSettings.FormNotifyEmail}}" placeholder="contato@meusite.com">
+                  </div>
+                </div>
+                <div class="form-row-2">
+                  <div class="field-group">
+                    <label for="smtp-host">Servidor SMTP</label>
+                    <input id="smtp-host" name="smtp_host" type="text" value="{{.SiteSettings.SMTPHost}}" placeholder="smtp.provedor.com">
+                  </div>
+                  <div class="field-group">
+                    <label for="smtp-port">Porta SMTP</label>
+                    <input id="smtp-port" name="smtp_port" type="text" value="{{.SiteSettings.SMTPPort}}" placeholder="587">
+                  </div>
+                </div>
+                <div class="form-row-2">
+                  <div class="field-group">
+                    <label for="smtp-user">Usuário SMTP</label>
+                    <input id="smtp-user" name="smtp_user" type="text" value="{{.SiteSettings.SMTPUser}}">
+                  </div>
+                  <div class="field-group">
+                    <label for="smtp-pass">Senha SMTP <span class="muted">(vazio para manter)</span></label>
+                    <input id="smtp-pass" name="smtp_pass" type="password" value="">
+                  </div>
+                </div>
+                <div class="field-group">
+                  <label for="smtp-from">Remetente (From)</label>
+                  <input id="smtp-from" name="smtp_from" type="email" value="{{.SiteSettings.SMTPFrom}}" placeholder="noreply@meusite.com">
+                </div>
+                <div><button class="button button-primary" type="submit">Salvar notificações</button></div>
+              </form>
+            </details>
+
+            <details class="welcome-card settings-card settings-accordion"{{if .NewAPIKey}} open{{end}}>
+              <summary class="settings-accordion-summary">
+                <div>
+                  <h2>API Keys (Headless / Preview de Rascunhos)</h2>
+                  <p class="muted">Gerencie chaves para acessar <code>?preview=1</code> na API REST.</p>
+                </div>
+              </summary>
+              <div class="mt-md">
+                <p class="muted">Use o cabeçalho <code>X-API-Key</code> ou <code>Authorization: Bearer</code> para acessar rascunhos via API.</p>
+                {{if .NewAPIKey}}
+                  <div class="notice copy-notice" role="status">
+                    <p><strong>Nova chave gerada (copie agora, ela não será exibida novamente):</strong></p>
+                    <div class="copy-box mt-sm">
+                      <code>{{.NewAPIKey}}</code>
+                      <button type="button" class="button" data-copy-text="{{.NewAPIKey}}">Copiar chave</button>
+                    </div>
+                  </div>
+                {{end}}
+                <form class="settings-form mt-md" method="post" action="/admin/settings/api-keys">
+                  <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                  <div class="field-group">
+                    <label for="api-key-name">Nome da chave</label>
+                    <input id="api-key-name" name="key_name" type="text" maxlength="80" placeholder="Frontend Next.js / Preview" required>
+                  </div>
+                  <div><button class="button button-primary" type="submit">Gerar API Key</button></div>
+                </form>
+                <div class="content-list mt-md">
+                  {{range .APIKeys}}
+                    <article class="health-item">
+                      <div>
+                        <strong>{{.Name}}</strong>
+                        <span class="muted"><code>{{.KeyPrefix}}…</code> {{if .LastUsedAt}}· último uso: {{formatDateTime .LastUsedAt}}{{end}}</span>
+                      </div>
+                      <form method="post" action="/admin/settings/api-keys/{{.ID}}/delete">
+                        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                        <button class="button button-danger" type="submit">Revogar</button>
+                      </form>
+                    </article>
+                  {{else}}
+                    <p class="muted">Nenhuma API Key criada.</p>
+                  {{end}}
+                </div>
+              </div>
+            </details>
+
+            <details class="welcome-card settings-card settings-accordion">
+              <summary class="settings-accordion-summary">
+                <div>
+                  <h2>Banco de dados e Backups</h2>
+                  <p class="muted">Crie cópias locais consistentes do SQLite, baixe ou otimize o banco.</p>
+                </div>
+              </summary>
+              <div class="button-group mt-md">
+                <form method="post" action="/admin/settings/backup">
+                  <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                  <button class="button button-primary" type="submit">Criar backup local</button>
+                </form>
+                <a class="button" href="/admin/settings/backup/download">Baixar backup agora</a>
+                <form method="post" action="/admin/settings/optimize">
+                  <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                  <button class="button" type="submit">Otimizar banco de dados</button>
+                </form>
+              </div>
+            </details>
+
+            <details class="welcome-card settings-card settings-accordion">
+              <summary class="settings-accordion-summary">
+                <div>
+                  <h2>Auditoria de permissões de arquivos</h2>
+                  <p class="muted">Verificação automática dos diretórios essenciais do CMS.</p>
+                </div>
+              </summary>
+              <div class="health-list mt-md">
+                {{range .PermissionFindings}}
+                  <article class="health-item {{if ne .Status "ok"}}health-item-warn{{end}}">
+                    <div class="health-item-copy">
+                      <div class="audit-path-row">
+                        <code class="audit-path">{{.Path}}</code>
+                        {{if .Mode}}<span class="audit-mode">{{.Mode}}</span>{{end}}
+                      </div>
+                      <p class="muted">{{.Detail}}</p>
+                    </div>
+                    <div class="health-item-actions">
+                      <span class="status-badge {{if eq .Status "ok"}}status-published{{else}}status-warn{{end}}">
+                        {{if eq .Status "ok"}}Seguro{{else}}Atenção{{end}}
+                      </span>
+                      {{if .Fixable}}
+                        <form method="post" action="/admin/settings/permissions/fix">
+                          <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                          <input type="hidden" name="path" value="{{.Path}}">
+                          <button class="button" type="submit">Corrigir</button>
+                        </form>
+                      {{end}}
+                    </div>
+                  </article>
+                {{end}}
+              </div>
+            </details>
+          </div>
+        {{else if eq .Mode "tools"}}
+          <div class="page-heading">
+            <div><p class="eyebrow">Portabilidade</p><h1>Importar e Exportar Conteúdo</h1></div>
+          </div>
+          <div class="settings-stack">
+            <section class="welcome-card settings-card">
+              <h2>Exportar conteúdo</h2>
+              <p class="muted">Baixe todos os posts e páginas em JSON estruturado ou em Markdown com frontmatter.</p>
+              <div class="button-group mt-md">
+                <a class="button button-primary" href="/admin/tools/export.json">Exportar JSON</a>
+                <a class="button" href="/admin/tools/export.md">Exportar Markdown</a>
+              </div>
+            </section>
+            <section class="welcome-card settings-card">
+              <h2>Importar conteúdo</h2>
+              <p class="muted">Importe artigos e páginas de JSON (Go Content Go!), Markdown (.md) ou WordPress WXR (.xml).</p>
+              <form class="settings-form mt-md" method="post" action="/admin/tools/import" enctype="multipart/form-data">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <div class="field-group">
+                  <label for="import-format">Formato</label>
+                  <select id="import-format" name="format">
+                    <option value="json">JSON (Go Content Go!)</option>
+                    <option value="markdown">Markdown (.md)</option>
+                    <option value="wxr">WordPress WXR (.xml)</option>
+                  </select>
+                </div>
+                <div class="field-group">
+                  <label for="import-file">Arquivo</label>
+                  <input id="import-file" name="file" type="file" required>
+                </div>
+                <div>
+                  <button class="button button-primary" type="submit">Importar</button>
+                </div>
+              </form>
+            </section>
+          </div>
+        {{else if eq .Mode "redirects"}}
+          <div class="page-heading">
+            <div><p class="eyebrow">SEO</p><h1>Redirecionamentos 301 / 302</h1></div>
+          </div>
+          <div class="settings-stack">
+            <section class="welcome-card settings-card">
+              <h2>Adicionar redirecionamento</h2>
+              <p class="muted">Redirecione URLs antigas para novos destinos sem perder autoridade nos mecanismos de busca.</p>
+              <form class="settings-form mt-md" method="post" action="/admin/redirects">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <div class="form-row-2">
+                  <div class="field-group">
+                    <label for="redirect-source">Caminho de origem</label>
+                    <input id="redirect-source" name="source_path" type="text" placeholder="/slug-antigo" required>
+                  </div>
+                  <div class="field-group">
+                    <label for="redirect-target">Destino (caminho local ou URL completa)</label>
+                    <input id="redirect-target" name="target_path" type="text" placeholder="/slug-novo" required>
+                  </div>
+                </div>
+                <div class="field-group">
+                  <label for="redirect-status">Tipo de redirecionamento</label>
+                  <select id="redirect-status" name="status_code">
+                    <option value="301">301 — Permanente (recomendado para SEO)</option>
+                    <option value="302">302 — Temporário</option>
+                  </select>
+                </div>
+                <div><button class="button button-primary" type="submit">Salvar redirecionamento</button></div>
+              </form>
+            </section>
+          <section class="content-list">
+            <h2>Redirecionamentos ativos</h2>
+            {{range .Redirects}}
+              <article class="content-row">
+                <div>
+                  <strong><code>{{.SourcePath}}</code> → <code>{{.TargetPath}}</code></strong>
+                  <span class="muted">HTTP {{.StatusCode}}</span>
+                </div>
+                <form method="post" action="/admin/redirects/{{.ID}}/delete">
+                  <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                  <button class="button button-danger" type="submit">Remover</button>
+                </form>
+              </article>
+            {{else}}
+              <p class="empty-state">Nenhum redirecionamento configurado.</p>
+            {{end}}
           </section>
+          </div>
         {{else if eq .Mode "security"}}
           <div class="page-heading">
             <div><p class="eyebrow">Segurança</p><h1>Autenticação de Dois Fatores (2FA)</h1></div>
           </div>
           <section class="welcome-card settings-card">
             {{if .TOTPEnabled}}
-              <h2>2FA ativo na sua conta</h2>
-              <p>Sua conta <strong>{{.Username}}</strong> exige um código TOTP de 6 dígitos no login.</p>
-              <form method="post" action="/admin/security/totp/disable">
-                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-                <button class="button button-danger" type="submit">Desativar 2FA</button>
-              </form>
+              <div class="security-header">
+                <h2>2FA ativo na sua conta</h2>
+                <span class="status-badge status-published">Ativo</span>
+              </div>
+              <p class="mt-sm">Sua conta <strong>{{.Username}}</strong> exige um código TOTP de 6 dígitos (ou um código de recuperação) no login.</p>
+              <p class="muted">Códigos de recuperação restantes: <strong>{{.RemainingRecoveryCodes}}</strong></p>
+              {{if .RecoveryCodes}}
+                <div class="notice copy-notice mt-md" role="status">
+                  <div class="copy-notice-header">
+                    <div>
+                      <strong>Salve seus códigos de recuperação agora.</strong>
+                      <p class="muted">Eles não serão exibidos novamente; cada código pode ser usado apenas uma vez caso você perca acesso ao autenticador.</p>
+                    </div>
+                    <button type="button" class="button" data-copy-target="recovery-codes-list">Copiar todos</button>
+                  </div>
+                  <ul id="recovery-codes-list" class="recovery-codes-grid mt-sm">
+                    {{range .RecoveryCodes}}
+                      <li><code>{{.}}</code></li>
+                    {{end}}
+                  </ul>
+                </div>
+              {{end}}
+              <div class="button-group mt-md">
+                <form method="post" action="/admin/security/totp/recovery">
+                  <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                  <button class="button" type="submit">Gerar novos códigos de recuperação</button>
+                </form>
+                <form method="post" action="/admin/security/totp/disable">
+                  <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                  <button class="button button-danger" type="submit">Desativar 2FA</button>
+                </form>
+              </div>
             {{else}}
               <h2>Ativar 2FA (TOTP)</h2>
-              <p>Adicione a chave abaixo no seu aplicativo autenticador (Google Authenticator, Authy, Bitwarden ou 1Password) e informe o código gerado para confirmar.</p>
-              <p><strong>Chave secreta (Base32):</strong> <code>{{.TOTPSecret}}</code></p>
-              <p class="muted">URI de provisionamento: <code>{{.TOTPURI}}</code></p>
-              <form class="editor-form" method="post" action="/admin/security/totp/enable">
+              <p class="muted">Adicione a chave abaixo no seu aplicativo autenticador (Google Authenticator, Authy, Bitwarden ou 1Password) e informe o código gerado para confirmar.</p>
+              <div class="field-stack mt-md">
+                <div class="copy-field">
+                  <span class="field-label">Chave secreta (Base32)</span>
+                  <div class="copy-box">
+                    <code>{{.TOTPSecret}}</code>
+                    <button type="button" class="button" data-copy-text="{{.TOTPSecret}}">Copiar chave</button>
+                  </div>
+                </div>
+                <div class="copy-field">
+                  <span class="field-label">URI de provisionamento (otpauth)</span>
+                  <div class="copy-box">
+                    <code class="copy-code-uri">{{.TOTPURI}}</code>
+                    <button type="button" class="button" data-copy-text="{{.TOTPURI}}">Copiar URI</button>
+                  </div>
+                </div>
+              </div>
+              <form class="settings-form totp-confirm-form mt-lg" method="post" action="/admin/security/totp/enable">
                 <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                 <input type="hidden" name="totp_secret" value="{{.TOTPSecret}}">
-                <label for="totp-code">Código de 6 dígitos do aplicativo</label>
-                <input id="totp-code" name="totp_code" type="text" inputmode="numeric" maxlength="8" placeholder="000000" required>
-                <button class="button button-primary" type="submit">Confirmar e ativar 2FA</button>
+                <div class="field-group">
+                  <label for="totp-code">Código de 6 dígitos do aplicativo</label>
+                  <input id="totp-code" class="totp-code-input" name="totp_code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="000000" required>
+                </div>
+                <div>
+                  <button class="button button-primary" type="submit">Confirmar e ativar 2FA</button>
+                </div>
               </form>
             {{end}}
           </section>

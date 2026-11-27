@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 64" fill="none" role="img" aria-label="Go Content Go">
+  <path d="M8 8H42L56 22V56H22L8 42V8Z" fill="#0F172A"/>
+  <path d="M18.5 26C19 30 19.6 31.4 23.5 32C19.6 32.6 19 34 18.5 38C18 34 17.4 32.6 13.5 32C17.4 31.4 18 30 18.5 26Z" fill="#00ADD8"/>
+  <path d="M21 20L33 32L21 44H27.5L39.5 32L27.5 20H21Z" fill="#FFFFFF"/>
+  <path d="M34 20L46 32L34 44H40.5L52.5 32L40.5 20H34Z" fill="#00ADD8"/>
+  <text x="72" y="40" fill="#0F172A" font-family="Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="25" font-weight="700" letter-spacing="-0.03em">Go <tspan fill="#00ADD8" font-weight="800">Content</tspan> Go</text>
+  <rect x="266" y="21" width="44" height="22" rx="6" fill="#F1F5F9"/>
+  <text x="288" y="36" text-anchor="middle" fill="#334155" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" font-size="12" font-weight="700">gcg</text>
+</svg>

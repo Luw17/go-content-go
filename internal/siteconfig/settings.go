@@ -21,18 +21,28 @@ const (
 var ErrInvalidSettings = errors.New("invalid site settings")
 
 type Settings struct {
-	Title                 string
-	Tagline               string
-	Logo                  string
-	ShowOnFront           string
-	PageOnFront           int64
-	HomeIntroTitle        string
-	HomePostsTitle        string
-	SiteURL               string
-	SEODefaultDescription string
-	SEODefaultOGImage     string
-	SEOTwitterHandle      string
-	SEORobotsIndexing     string
+	Title                  string
+	Tagline                string
+	Logo                   string
+	Favicon                string
+	AppleTouchIcon         string
+	ShowOnFront            string
+	PageOnFront            int64
+	HomeIntroTitle         string
+	HomePostsTitle         string
+	SiteURL                string
+	SEODefaultDescription  string
+	SEODefaultOGImage      string
+	SEOTwitterHandle       string
+	SEORobotsIndexing      string
+	AutoRedirectSlugChange bool
+	FormWebhookURL         string
+	FormNotifyEmail        string
+	SMTPHost               string
+	SMTPPort               string
+	SMTPUser               string
+	SMTPPass               string
+	SMTPFrom               string
 }
 
 func Defaults() Settings {
@@ -55,10 +65,13 @@ func Load(ctx context.Context, db *sql.DB) (Settings, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT key, value FROM options
 		WHERE key IN (
-			'site_title', 'site_tagline', 'site_logo', 'show_on_front', 'page_on_front',
+			'site_title', 'site_tagline', 'site_logo', 'site_favicon', 'site_apple_touch_icon',
+			'show_on_front', 'page_on_front',
 			'home_intro_title', 'home_posts_title',
 			'site_url', 'seo_default_description', 'seo_default_og_image',
-			'seo_twitter_handle', 'seo_robots_indexing'
+			'seo_twitter_handle', 'seo_robots_indexing', 'auto_redirect_slug_change',
+			'form_webhook_url', 'form_notify_email',
+			'smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_from'
 		)
 	`)
 	if err != nil {
@@ -79,6 +92,10 @@ func Load(ctx context.Context, db *sql.DB) (Settings, error) {
 			settings.Tagline = value
 		case "site_logo":
 			settings.Logo = value
+		case "site_favicon":
+			settings.Favicon = strings.TrimSpace(value)
+		case "site_apple_touch_icon":
+			settings.AppleTouchIcon = strings.TrimSpace(value)
 		case "show_on_front":
 			if value == FrontPage {
 				settings.ShowOnFront = FrontPage
@@ -110,6 +127,22 @@ func Load(ctx context.Context, db *sql.DB) (Settings, error) {
 			} else {
 				settings.SEORobotsIndexing = RobotsIndex
 			}
+		case "auto_redirect_slug_change":
+			settings.AutoRedirectSlugChange = value == "1" || strings.EqualFold(value, "true")
+		case "form_webhook_url":
+			settings.FormWebhookURL = strings.TrimSpace(value)
+		case "form_notify_email":
+			settings.FormNotifyEmail = strings.TrimSpace(value)
+		case "smtp_host":
+			settings.SMTPHost = strings.TrimSpace(value)
+		case "smtp_port":
+			settings.SMTPPort = strings.TrimSpace(value)
+		case "smtp_user":
+			settings.SMTPUser = strings.TrimSpace(value)
+		case "smtp_pass":
+			settings.SMTPPass = value
+		case "smtp_from":
+			settings.SMTPFrom = strings.TrimSpace(value)
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -125,6 +158,8 @@ func Save(ctx context.Context, db *sql.DB, settings Settings) error {
 	settings.Title = strings.TrimSpace(settings.Title)
 	settings.Tagline = strings.TrimSpace(settings.Tagline)
 	settings.Logo = strings.TrimSpace(settings.Logo)
+	settings.Favicon = strings.TrimSpace(settings.Favicon)
+	settings.AppleTouchIcon = strings.TrimSpace(settings.AppleTouchIcon)
 	settings.HomeIntroTitle = strings.TrimSpace(settings.HomeIntroTitle)
 	settings.HomePostsTitle = strings.TrimSpace(settings.HomePostsTitle)
 	settings.SiteURL = strings.TrimRight(strings.TrimSpace(settings.SiteURL), "/")
@@ -137,6 +172,8 @@ func Save(ctx context.Context, db *sql.DB, settings Settings) error {
 
 	if settings.Title == "" || len([]rune(settings.Title)) > 120 ||
 		len([]rune(settings.Tagline)) > 250 ||
+		len([]rune(settings.Favicon)) > 2048 ||
+		len([]rune(settings.AppleTouchIcon)) > 2048 ||
 		settings.HomeIntroTitle == "" || len([]rune(settings.HomeIntroTitle)) > 120 ||
 		settings.HomePostsTitle == "" || len([]rune(settings.HomePostsTitle)) > 120 ||
 		len([]rune(settings.SiteURL)) > 2000 ||
@@ -155,6 +192,10 @@ func Save(ctx context.Context, db *sql.DB, settings Settings) error {
 	defer tx.Rollback()
 
 	now := time.Now().UTC().Format(time.RFC3339Nano)
+	autoRedirectVal := "0"
+	if settings.AutoRedirectSlugChange {
+		autoRedirectVal = "1"
+	}
 	values := []struct {
 		key   string
 		value string
@@ -162,6 +203,8 @@ func Save(ctx context.Context, db *sql.DB, settings Settings) error {
 		{"site_title", settings.Title},
 		{"site_tagline", settings.Tagline},
 		{"site_logo", settings.Logo},
+		{"site_favicon", settings.Favicon},
+		{"site_apple_touch_icon", settings.AppleTouchIcon},
 		{"show_on_front", settings.ShowOnFront},
 		{"page_on_front", strconv.FormatInt(settings.PageOnFront, 10)},
 		{"home_intro_title", settings.HomeIntroTitle},
@@ -171,6 +214,14 @@ func Save(ctx context.Context, db *sql.DB, settings Settings) error {
 		{"seo_default_og_image", settings.SEODefaultOGImage},
 		{"seo_twitter_handle", settings.SEOTwitterHandle},
 		{"seo_robots_indexing", settings.SEORobotsIndexing},
+		{"auto_redirect_slug_change", autoRedirectVal},
+		{"form_webhook_url", strings.TrimSpace(settings.FormWebhookURL)},
+		{"form_notify_email", strings.TrimSpace(settings.FormNotifyEmail)},
+		{"smtp_host", strings.TrimSpace(settings.SMTPHost)},
+		{"smtp_port", strings.TrimSpace(settings.SMTPPort)},
+		{"smtp_user", strings.TrimSpace(settings.SMTPUser)},
+		{"smtp_pass", settings.SMTPPass},
+		{"smtp_from", strings.TrimSpace(settings.SMTPFrom)},
 	}
 	for _, setting := range values {
 		if _, err := tx.ExecContext(ctx, `

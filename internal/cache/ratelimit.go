@@ -77,8 +77,15 @@ func (l *Limiter) prune(now time.Time) {
 }
 
 func (l *Limiter) Middleware(keyPrefix string, next http.Handler) http.Handler {
+	return l.MiddlewareWithIP(keyPrefix, clientIP, next)
+}
+
+func (l *Limiter) MiddlewareWithIP(keyPrefix string, ipFn func(*http.Request) string, next http.Handler) http.Handler {
+	if ipFn == nil {
+		ipFn = clientIP
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := clientIP(r)
+		ip := ipFn(r)
 		if !l.Allow(keyPrefix+":"+ip, time.Now()) {
 			slog.Warn("request rate limited", "scope", keyPrefix, "remote_addr", ip)
 			w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(1/l.rate))))

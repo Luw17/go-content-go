@@ -53,69 +53,74 @@
 
       <div id="section-live-preview" class="section-live-preview" data-site-title="{{.SiteSettings.Title}}" data-site-tagline="{{.SiteSettings.Tagline}}"></div>
 
-      <form class="editor-form" method="post" action="/admin/appearance/sections/save" data-section-editor>
+      <form class="settings-form sections-form" method="post" action="/admin/appearance/sections/save" data-section-editor>
         <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
         <input type="hidden" name="id" value="{{.SelectedSection.ID}}">
         <textarea id="section-columns-json" name="columns_json" hidden>{{.SelectedSection.ConfigJSON}}</textarea>
 
-        <div class="form-grid">
-          <div>
-            <label for="section-name">Nome da seção</label>
-            <input id="section-name" name="name" type="text" maxlength="120" value="{{.SelectedSection.Name}}" placeholder="Ex.: Cabeçalho da Homepage" required>
+        <fieldset class="form-fieldset">
+          <legend>1. Identificação e Escopo</legend>
+          <div class="form-row-2">
+            <div class="field-group">
+              <label for="section-name">Nome da seção</label>
+              <input id="section-name" name="name" type="text" maxlength="120" value="{{.SelectedSection.Name}}" placeholder="Ex.: Cabeçalho da Homepage" required>
+            </div>
+            <div class="field-group">
+              <label for="section-type">Tipo</label>
+              <select id="section-type" name="section_type">
+                <option value="header" {{if eq .SelectedSection.SectionType "header"}}selected{{end}}>Cabeçalho (Header)</option>
+                <option value="footer" {{if eq .SelectedSection.SectionType "footer"}}selected{{end}}>Rodapé (Footer)</option>
+              </select>
+            </div>
           </div>
-          <div>
-            <label for="section-type">Tipo</label>
-            <select id="section-type" name="section_type">
-              <option value="header" {{if eq .SelectedSection.SectionType "header"}}selected{{end}}>Cabeçalho (Header)</option>
-              <option value="footer" {{if eq .SelectedSection.SectionType "footer"}}selected{{end}}>Rodapé (Footer)</option>
-            </select>
-          </div>
-        </div>
 
-        <div class="form-grid">
-          <div>
-            <label for="section-scope">Onde aplicar</label>
-            <select id="section-scope" name="target_scope">
-              <option value="all" {{if eq .SelectedSection.TargetScope "all"}}selected{{end}}>Todo o site (padrão global)</option>
-              <option value="home" {{if eq .SelectedSection.TargetScope "home"}}selected{{end}}>Somente Homepage (/)</option>
-              <option value="posts" {{if eq .SelectedSection.TargetScope "posts"}}selected{{end}}>Artigos (Posts)</option>
-              <option value="pages" {{if eq .SelectedSection.TargetScope "pages"}}selected{{end}}>Páginas</option>
-              <option value="slug" {{if eq .SelectedSection.TargetScope "slug"}}selected{{end}}>Slug específico</option>
-            </select>
+          <div class="form-row-2">
+            <div class="field-group">
+              <label for="section-scope">Onde aplicar</label>
+              <select id="section-scope" name="target_scope">
+                <option value="all" {{if eq .SelectedSection.TargetScope "all"}}selected{{end}}>Todo o site (padrão global)</option>
+                <option value="home" {{if eq .SelectedSection.TargetScope "home"}}selected{{end}}>Somente Homepage (/)</option>
+                <option value="posts" {{if eq .SelectedSection.TargetScope "posts"}}selected{{end}}>Artigos (Posts)</option>
+                <option value="pages" {{if eq .SelectedSection.TargetScope "pages"}}selected{{end}}>Páginas</option>
+                <option value="slug" {{if eq .SelectedSection.TargetScope "slug"}}selected{{end}}>Slug específico</option>
+              </select>
+            </div>
+            <div class="field-group" data-section-slug-wrap {{if ne .SelectedSection.TargetScope "slug"}}hidden{{end}}>
+              <label for="section-slug">Slug de destino</label>
+              <input id="section-slug" name="target_slug" type="text" maxlength="100" value="{{.SelectedSection.TargetSlug}}" placeholder="Ex.: landing-produto">
+            </div>
           </div>
-          <div data-section-slug-wrap {{if ne .SelectedSection.TargetScope "slug"}}hidden{{end}}>
-            <label for="section-slug">Slug de destino</label>
-            <input id="section-slug" name="target_slug" type="text" maxlength="100" value="{{.SelectedSection.TargetSlug}}" placeholder="Ex.: landing-produto">
-          </div>
-        </div>
+        </fieldset>
 
-        <div class="form-grid">
-          <div>
-            <label for="section-layout">Estilo de layout</label>
-            <select id="section-layout" name="layout" data-current-layout="{{.SelectedSection.Config.Layout}}">
-              {{if eq .SelectedSection.SectionType "footer"}}
-                <option value="columns" {{if eq .SelectedSection.Config.Layout "columns"}}selected{{end}}>Colunas de links</option>
-                <option value="simple" {{if eq .SelectedSection.Config.Layout "simple"}}selected{{end}}>Simples horizontal</option>
-                <option value="centered" {{if eq .SelectedSection.Config.Layout "centered"}}selected{{end}}>Centralizado</option>
-              {{else}}
-                <option value="split" {{if eq .SelectedSection.Config.Layout "split"}}selected{{end}}>Dividido (Marca + Menu + CTA)</option>
-                <option value="centered" {{if eq .SelectedSection.Config.Layout "centered"}}selected{{end}}>Centralizado</option>
-                <option value="minimal" {{if eq .SelectedSection.Config.Layout "minimal"}}selected{{end}}>Minimalista</option>
-              {{end}}
-            </select>
+        <fieldset class="form-fieldset">
+          <legend>2. Layout e Exibição</legend>
+          <div class="form-row-2">
+            <div class="field-group">
+              <label for="section-layout">Estilo de layout</label>
+              <select id="section-layout" name="layout" data-current-layout="{{.SelectedSection.Config.Layout}}">
+                {{if eq .SelectedSection.SectionType "footer"}}
+                  <option value="columns" {{if eq .SelectedSection.Config.Layout "columns"}}selected{{end}}>Colunas de links</option>
+                  <option value="simple" {{if eq .SelectedSection.Config.Layout "simple"}}selected{{end}}>Simples horizontal</option>
+                  <option value="centered" {{if eq .SelectedSection.Config.Layout "centered"}}selected{{end}}>Centralizado</option>
+                {{else}}
+                  <option value="split" {{if eq .SelectedSection.Config.Layout "split"}}selected{{end}}>Dividido (Marca + Menu + CTA)</option>
+                  <option value="centered" {{if eq .SelectedSection.Config.Layout "centered"}}selected{{end}}>Centralizado</option>
+                  <option value="minimal" {{if eq .SelectedSection.Config.Layout "minimal"}}selected{{end}}>Minimalista</option>
+                {{end}}
+              </select>
+            </div>
+            <div class="field-group">
+              <label for="section-tone">Aparência / Fundo</label>
+              <select id="section-tone" name="tone">
+                <option value="default" {{if eq .SelectedSection.Config.Tone "default"}}selected{{end}}>Padrão do tema</option>
+                <option value="surface" {{if eq .SelectedSection.Config.Tone "surface"}}selected{{end}}>Superfície destacada</option>
+                <option value="accent" {{if eq .SelectedSection.Config.Tone "accent"}}selected{{end}}>Cor de destaque suave</option>
+                <option value="dark" {{if eq .SelectedSection.Config.Tone "dark"}}selected{{end}}>Escuro (contraste alto)</option>
+              </select>
+            </div>
           </div>
-          <div>
-            <label for="section-tone">Aparência / Fundo</label>
-            <select id="section-tone" name="tone">
-              <option value="default" {{if eq .SelectedSection.Config.Tone "default"}}selected{{end}}>Padrão do tema</option>
-              <option value="surface" {{if eq .SelectedSection.Config.Tone "surface"}}selected{{end}}>Superfície destacada</option>
-              <option value="accent" {{if eq .SelectedSection.Config.Tone "accent"}}selected{{end}}>Cor de destaque suave</option>
-              <option value="dark" {{if eq .SelectedSection.Config.Tone "dark"}}selected{{end}}>Escuro (contraste alto)</option>
-            </select>
-          </div>
-        </div>
 
-        <div class="section-toggles">
+          <div class="section-toggles">
           <label class="checkbox-label">
             <input type="checkbox" name="active" value="1" {{if .SelectedSection.Active}}checked{{end}}>
             Seção ativa no site público
@@ -142,51 +147,61 @@
           </label>
         </div>
 
-        <label for="section-menu-location">Localização do menu vinculado</label>
-        <select id="section-menu-location" name="menu_location">
-          <option value="primary" {{if eq .SelectedSection.Config.MenuLocation "primary"}}selected{{end}}>Menu principal (primary)</option>
-          <option value="footer" {{if eq .SelectedSection.Config.MenuLocation "footer"}}selected{{end}}>Menu do rodapé (footer)</option>
-        </select>
-
-        <div class="form-grid" data-header-only {{if eq .SelectedSection.SectionType "footer"}}hidden{{end}}>
-          <div>
-            <label for="section-announcement-text">Barra de anúncio <span class="muted">(opcional)</span></label>
-            <input id="section-announcement-text" name="announcement_text" type="text" maxlength="200" value="{{.SelectedSection.Config.AnnouncementText}}" placeholder="Ex.: Nova versão 2.0 disponível!">
-          </div>
-          <div>
-            <label for="section-announcement-url">Link da barra de anúncio <span class="muted">(opcional)</span></label>
-            <input id="section-announcement-url" name="announcement_url" type="text" maxlength="2048" value="{{.SelectedSection.Config.AnnouncementURL}}" placeholder="/novidades ou https://…">
-          </div>
+        <div class="field-group">
+          <label for="section-menu-location">Localização do menu vinculado</label>
+          <select id="section-menu-location" name="menu_location">
+            <option value="primary" {{if eq .SelectedSection.Config.MenuLocation "primary"}}selected{{end}}>Menu principal (primary)</option>
+            <option value="footer" {{if eq .SelectedSection.Config.MenuLocation "footer"}}selected{{end}}>Menu do rodapé (footer)</option>
+          </select>
         </div>
+        </fieldset>
 
-        <div class="form-grid">
-          <div>
-            <label for="section-cta-label">Botão de destaque (CTA) <span class="muted">(opcional)</span></label>
-            <input id="section-cta-label" name="cta_label" type="text" maxlength="60" value="{{.SelectedSection.Config.CTALabel}}" placeholder="Ex.: Fale conosco">
-          </div>
-          <div>
-            <label for="section-cta-url">Link do botão CTA</label>
-            <input id="section-cta-url" name="cta_url" type="text" maxlength="2048" value="{{.SelectedSection.Config.CTAURL}}" placeholder="/contato ou https://…">
-          </div>
-        </div>
-
-        <div data-footer-only {{if ne .SelectedSection.SectionType "footer"}}hidden{{end}}>
-          <label for="section-custom-text">Texto institucional do rodapé <span class="muted">(opcional)</span></label>
-          <textarea id="section-custom-text" name="custom_text" rows="2" maxlength="400" placeholder="Substitui o slogan padrão no rodapé">{{.SelectedSection.Config.CustomText}}</textarea>
-
-          <label for="section-copyright">Texto de direitos autorais</label>
-          <input id="section-copyright" name="copyright_text" type="text" maxlength="200" value="{{.SelectedSection.Config.CopyrightText}}" placeholder="© 2026 Meu Site. Todos os direitos reservados.">
-
-          <div class="footer-columns-builder">
-            <div class="builder-canvas-heading">
-              <h3>Colunas de links</h3>
-              <button class="button" type="button" data-add-footer-col>+ Adicionar coluna</button>
+        <fieldset class="form-fieldset">
+          <legend>3. Extras e Chamada para Ação</legend>
+          <div class="form-row-2" data-header-only {{if eq .SelectedSection.SectionType "footer"}}hidden{{end}}>
+            <div class="field-group">
+              <label for="section-announcement-text">Barra de anúncio <span class="muted">(opcional)</span></label>
+              <input id="section-announcement-text" name="announcement_text" type="text" maxlength="200" value="{{.SelectedSection.Config.AnnouncementText}}" placeholder="Ex.: Nova versão 2.1 disponível!">
             </div>
-            <div id="footer-columns-editor" class="footer-columns-editor"></div>
+            <div class="field-group">
+              <label for="section-announcement-url">Link da barra de anúncio <span class="muted">(opcional)</span></label>
+              <input id="section-announcement-url" name="announcement_url" type="text" maxlength="2048" value="{{.SelectedSection.Config.AnnouncementURL}}" placeholder="/novidades ou https://…">
+            </div>
           </div>
-        </div>
 
-        <button class="button button-primary" type="submit">Salvar seção global</button>
+          <div class="form-row-2">
+            <div class="field-group">
+              <label for="section-cta-label">Botão de destaque (CTA) <span class="muted">(opcional)</span></label>
+              <input id="section-cta-label" name="cta_label" type="text" maxlength="60" value="{{.SelectedSection.Config.CTALabel}}" placeholder="Ex.: Fale conosco">
+            </div>
+            <div class="field-group">
+              <label for="section-cta-url">Link do botão CTA</label>
+              <input id="section-cta-url" name="cta_url" type="text" maxlength="2048" value="{{.SelectedSection.Config.CTAURL}}" placeholder="/contato ou https://…">
+            </div>
+          </div>
+
+          <div class="field-stack" data-footer-only {{if ne .SelectedSection.SectionType "footer"}}hidden{{end}}>
+            <div class="field-group">
+              <label for="section-custom-text">Texto institucional do rodapé <span class="muted">(opcional)</span></label>
+              <textarea id="section-custom-text" name="custom_text" rows="2" maxlength="400" placeholder="Substitui o slogan padrão no rodapé">{{.SelectedSection.Config.CustomText}}</textarea>
+            </div>
+            <div class="field-group">
+              <label for="section-copyright">Texto de direitos autorais</label>
+              <input id="section-copyright" name="copyright_text" type="text" maxlength="200" value="{{.SelectedSection.Config.CopyrightText}}" placeholder="© 2026 Meu Site. Todos os direitos reservados.">
+            </div>
+            <div class="footer-columns-builder">
+              <div class="builder-canvas-heading">
+                <h3>Colunas de links</h3>
+                <button class="button" type="button" data-add-footer-col>+ Adicionar coluna</button>
+              </div>
+              <div id="footer-columns-editor" class="footer-columns-editor"></div>
+            </div>
+          </div>
+        </fieldset>
+
+        <div>
+          <button class="button button-primary" type="submit">Salvar seção global</button>
+        </div>
       </form>
     </section>
   </div>

@@ -61,6 +61,7 @@ type Item struct {
 	CreatedAt     string
 	UpdatedAt     string
 	PublishedAt   string
+	ScheduledAt   string
 	Author        string
 	Categories    []Category
 	Tags          []string
@@ -93,6 +94,7 @@ type Input struct {
 	SchemaType          string
 	Noindex             bool
 	LayoutID            int64
+	ScheduledAt         string
 	CategoryIDs         []int64
 	NewCategory         string
 	NewCategoryParentID int64
@@ -118,7 +120,7 @@ func list(ctx context.Context, db *sql.DB, contentType string, trashed bool, aut
 		SELECT id, content_type, title, slug, content, status, featured_image,
 		       seo_title, seo_description, canonical_url, og_title, og_description,
 		       og_image, twitter_card, schema_type, noindex, COALESCE(layout_id, 0),
-		       created_at, updated_at, COALESCE(published_at, '')
+		       created_at, updated_at, COALESCE(published_at, ''), COALESCE(scheduled_at, '')
 		FROM posts
 		WHERE content_type = ? AND `
 	if trashed {
@@ -151,7 +153,7 @@ func list(ctx context.Context, db *sql.DB, contentType string, trashed bool, aut
 			&item.FeaturedImage, &item.SEOTitle, &item.SEODescription, &item.CanonicalURL,
 			&item.OGTitle, &item.OGDescription, &item.OGImage, &item.TwitterCard,
 			&item.SchemaType, &noindexInt, &item.LayoutID,
-			&item.CreatedAt, &item.UpdatedAt, &item.PublishedAt,
+			&item.CreatedAt, &item.UpdatedAt, &item.PublishedAt, &item.ScheduledAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan content: %w", err)
 		}
@@ -195,7 +197,7 @@ func Get(ctx context.Context, db *sql.DB, id int64, contentType string) (Item, e
 		SELECT id, content_type, title, slug, content, status, featured_image,
 		       seo_title, seo_description, canonical_url, og_title, og_description,
 		       og_image, twitter_card, schema_type, noindex, COALESCE(layout_id, 0),
-		       created_at, updated_at, COALESCE(published_at, '')
+		       created_at, updated_at, COALESCE(published_at, ''), COALESCE(scheduled_at, '')
 		FROM posts
 		WHERE id = ? AND content_type = ? AND deleted_at IS NULL
 	`, id, contentType).Scan(
@@ -203,7 +205,7 @@ func Get(ctx context.Context, db *sql.DB, id int64, contentType string) (Item, e
 		&item.FeaturedImage, &item.SEOTitle, &item.SEODescription, &item.CanonicalURL,
 		&item.OGTitle, &item.OGDescription, &item.OGImage, &item.TwitterCard,
 		&item.SchemaType, &noindexInt, &item.LayoutID,
-		&item.CreatedAt, &item.UpdatedAt, &item.PublishedAt,
+		&item.CreatedAt, &item.UpdatedAt, &item.PublishedAt, &item.ScheduledAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Item{}, ErrNotFound
@@ -294,6 +296,33 @@ func PublishedPages(ctx context.Context, db *sql.DB) ([]Item, error) {
 		return nil, fmt.Errorf("read published pages: %w", err)
 	}
 	return pages, nil
+}
+
+// PublishedIndexable returns published, non-trashed posts and pages that do not have noindex set,
+// selecting only the lightweight fields needed for sitemap generation.
+func PublishedIndexable(ctx context.Context, db *sql.DB) ([]Item, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT id, content_type, slug, updated_at, COALESCE(published_at, '')
+		FROM posts
+		WHERE status = 'published' AND deleted_at IS NULL AND noindex = 0
+		ORDER BY COALESCE(published_at, updated_at) DESC, id DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list indexable content: %w", err)
+	}
+	defer rows.Close()
+	var items []Item
+	for rows.Next() {
+		var item Item
+		if err := rows.Scan(&item.ID, &item.Type, &item.Slug, &item.UpdatedAt, &item.PublishedAt); err != nil {
+			return nil, fmt.Errorf("scan indexable content: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read indexable content: %w", err)
+	}
+	return items, nil
 }
 
 func Save(ctx context.Context, db *sql.DB, input Input, authorID int64) (Item, error) {
@@ -426,14 +455,19 @@ func Save(ctx context.Context, db *sql.DB, input Input, authorID int64) (Item, e
 		}
 	}
 
+	scheduledAt, err := normalizeScheduledAt(input.Status, input.ScheduledAt)
+	if err != nil {
+		return Item{}, err
+	}
+
 	var id int64
 	if input.ID == 0 {
 		result, err := tx.ExecContext(ctx, `
 			INSERT INTO posts (author_id, title, slug, content, status, created_at, updated_at, published_at,
-			                   content_type, featured_image, seo_title, seo_description, canonical_url,
+			                   scheduled_at, content_type, featured_image, seo_title, seo_description, canonical_url,
 			                   og_title, og_description, og_image, twitter_card, schema_type, noindex, layout_id)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, authorID, input.Title, slug, input.Content, input.Status, now, now, publishedAt, input.Type,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, authorID, input.Title, slug, input.Content, input.Status, now, now, publishedAt, scheduledAt, input.Type,
 			input.FeaturedImage, input.SEOTitle, input.SEODescription, input.CanonicalURL,
 			input.OGTitle, input.OGDescription, input.OGImage, input.TwitterCard, input.SchemaType, noindexInt, nullableID(input.LayoutID))
 		if err != nil {
@@ -445,14 +479,27 @@ func Save(ctx context.Context, db *sql.DB, input Input, authorID int64) (Item, e
 		}
 	} else {
 		id = input.ID
+		var prevTitle, prevSlug, prevContent, prevStatus string
+		if err := tx.QueryRowContext(ctx, `
+			SELECT title, slug, content, status FROM posts WHERE id = ? AND content_type = ?
+		`, id, input.Type).Scan(&prevTitle, &prevSlug, &prevContent, &prevStatus); err == nil {
+			if prevTitle != input.Title || prevSlug != slug || prevContent != input.Content || prevStatus != input.Status {
+				if _, revErr := tx.ExecContext(ctx, `
+					INSERT INTO post_revisions (post_id, author_id, title, slug, content, status, created_at)
+					VALUES (?, ?, ?, ?, ?, ?, ?)
+				`, id, authorID, prevTitle, prevSlug, prevContent, prevStatus, now); revErr != nil {
+					return Item{}, fmt.Errorf("record content revision: %w", revErr)
+				}
+			}
+		}
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE posts
 			SET title = ?, slug = ?, content = ?, status = ?, updated_at = ?, published_at = ?,
-			    featured_image = ?, seo_title = ?, seo_description = ?, canonical_url = ?,
+			    scheduled_at = ?, featured_image = ?, seo_title = ?, seo_description = ?, canonical_url = ?,
 			    og_title = ?, og_description = ?, og_image = ?, twitter_card = ?, schema_type = ?,
 			    noindex = ?, layout_id = ?
 			WHERE id = ? AND content_type = ?
-		`, input.Title, slug, input.Content, input.Status, now, publishedAt,
+		`, input.Title, slug, input.Content, input.Status, now, publishedAt, scheduledAt,
 			input.FeaturedImage, input.SEOTitle, input.SEODescription, input.CanonicalURL,
 			input.OGTitle, input.OGDescription, input.OGImage, input.TwitterCard, input.SchemaType,
 			noindexInt, nullableID(input.LayoutID), id, input.Type); err != nil {
