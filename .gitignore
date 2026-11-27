@@ -38,8 +38,7 @@ go.work.sum
 
 # Keep bundled public themes in version control; locally installed themes stay ignored.
 /themes/*
-!/themes/themes.go
-!/themes/themes_test.go
+!/themes/*.go
 !/themes/default/
 !/themes/default/**
 !/themes/editorial/
