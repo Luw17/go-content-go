@@ -77,10 +77,17 @@ a:focus-visible {
 
 .brand-logo {
   display: block;
+  height: 36px;
   width: auto;
   max-width: min(220px, 48vw);
   max-height: 48px;
+  flex-shrink: 0;
   object-fit: contain;
+}
+
+.brand-small .brand-logo {
+  height: 28px;
+  max-height: 36px;
 }
 
 .brand-small {
