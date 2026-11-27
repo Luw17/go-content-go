@@ -548,8 +548,8 @@ func TestAdministratorBackupAndMaintenanceControls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(backups) != 2 || !strings.HasSuffix(backups[0].Name(), ".db") || !strings.HasSuffix(backups[1].Name(), ".db") {
-		t.Fatalf("local backups = %+v, want the two backup files", backups)
+	if len(backups) != 1 || !strings.HasSuffix(backups[0].Name(), ".db") {
+		t.Fatalf("local backups = %+v, want only the 1 manual backup file (download must not leave files in backupDir)", backups)
 	}
 }
 

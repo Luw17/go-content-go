@@ -53,6 +53,9 @@ func TestMigrateCreatesCoreTablesAndIsIdempotent(t *testing.T) {
 		"migrations/009_category_parents.sql",
 		"migrations/010_page_builder.sql",
 		"migrations/011_plugins_and_2fa.sql",
+		"migrations/012_totp_hardening.sql",
+		"migrations/013_redirects_and_fts.sql",
+		"migrations/014_editorial_and_api_keys.sql",
 	}; !reflect.DeepEqual(names, want) {
 		t.Errorf("MigrationNames() = %v, want %v", names, want)
 	}

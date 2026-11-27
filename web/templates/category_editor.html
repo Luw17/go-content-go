@@ -7,24 +7,30 @@
 
   <section id="new-cat-form" class="editor-panel category-form-panel" hidden>
     <h2>Nova categoria</h2>
-    <form id="create-cat-form" class="editor-form category-create-form" method="post" action="/admin/categories/save">
+    <form id="create-cat-form" class="settings-form category-create-form" method="post" action="/admin/categories/save">
       <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-      <label for="cat-name">Nome</label>
-      <input id="cat-name" name="name" type="text" maxlength="100" placeholder="Ex.: Tecnologia" required>
+      <div class="field-group">
+        <label for="cat-name">Nome</label>
+        <input id="cat-name" name="name" type="text" maxlength="100" placeholder="Ex.: Tecnologia" required>
+      </div>
 
-      <label for="cat-parents">Categorias pai <span class="muted">(opcional, múltiplas)</span></label>
-      {{if .Categories}}
-        <select id="cat-parents" class="category-parents-select" name="parent_ids" multiple size="5">
-          {{range .Categories}}
-            <option value="{{.ID}}">{{repeat "— " .Depth}}{{.Name}}</option>
-          {{end}}
-        </select>
-        <p class="muted">Segure Ctrl (ou Cmd) para selecionar mais de uma categoria pai.</p>
-      {{else}}
-        <p class="muted">Crie a primeira categoria para poder definir hierarquias de categorias pai.</p>
-      {{end}}
+      <div class="field-group">
+        <span class="field-label">Categorias pai <span class="muted">(opcional, selecione quantas quiser)</span></span>
+        {{if .Categories}}
+          <div class="checkbox-group" role="group" aria-label="Categorias pai">
+            {{range .Categories}}
+              <label class="checkbox-inline">
+                <input type="checkbox" name="parent_ids" value="{{.ID}}">
+                <span>{{repeat "— " .Depth}}{{.Name}}</span>
+              </label>
+            {{end}}
+          </div>
+        {{else}}
+          <p class="muted">Crie a primeira categoria para poder definir hierarquias de categorias pai.</p>
+        {{end}}
+      </div>
 
-      <div class="category-form-actions">
+      <div class="category-form-actions button-group">
         <button class="button button-primary" type="submit">Criar</button>
         <button class="button" type="button" id="cancel-cat-btn">Cancelar</button>
       </div>

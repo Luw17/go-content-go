@@ -5,10 +5,12 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha1"
+	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
 	"encoding/base32"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/url"
@@ -17,8 +19,11 @@ import (
 )
 
 const (
-	totpPeriodSeconds = 30
-	totpDigits        = 6
+	totpPeriodSeconds       = 30
+	totpDigits              = 6
+	recoveryCodeCount       = 8
+	recoveryCodeHalfLength  = 5
+	recoveryCodeAlphabet    = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 )
 
 var (
@@ -79,20 +84,32 @@ func TOTPCode(secret string, at time.Time) (string, error) {
 
 // VerifyTOTP checks a 6-digit TOTP code allowing +/- 1 time step for clock skew.
 func VerifyTOTP(secret, code string, now time.Time) bool {
+	_, ok := VerifyTOTPWithStep(secret, code, now)
+	return ok
+}
+
+// VerifyTOTPWithStep checks a 6-digit TOTP code allowing +/- 1 time step for clock skew
+// and returns the matched 30-second time step counter.
+func VerifyTOTPWithStep(secret, code string, now time.Time) (int64, bool) {
 	code = strings.ReplaceAll(strings.TrimSpace(code), " ", "")
 	if len(code) != totpDigits {
-		return false
+		return 0, false
 	}
-	for _, skew := range []int{-1, 0, 1} {
-		expected, err := TOTPCode(secret, now.Add(time.Duration(skew*totpPeriodSeconds)*time.Second))
+	baseStep := now.UTC().Unix() / totpPeriodSeconds
+	for _, skew := range []int64{-1, 0, 1} {
+		step := baseStep + skew
+		if step < 0 {
+			continue
+		}
+		expected, err := TOTPCode(secret, time.Unix(step*totpPeriodSeconds, 0).UTC())
 		if err != nil {
-			return false
+			return 0, false
 		}
 		if subtle.ConstantTimeCompare([]byte(code), []byte(expected)) == 1 {
-			return true
+			return step, true
 		}
 	}
-	return false
+	return 0, false
 }
 
 // EnableTOTP verifies the user's code against the pending secret and activates 2FA.
@@ -103,7 +120,7 @@ func EnableTOTP(ctx context.Context, db *sql.DB, userID int64, secret, code stri
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	res, err := db.ExecContext(ctx, `
-		UPDATE users SET totp_secret = ?, totp_enabled = 1, updated_at = ?
+		UPDATE users SET totp_secret = ?, totp_enabled = 1, totp_last_step = -1, updated_at = ?
 		WHERE id = ?
 	`, secret, now, userID)
 	if err != nil {
@@ -119,28 +136,99 @@ func EnableTOTP(ctx context.Context, db *sql.DB, userID int64, secret, code stri
 	return nil
 }
 
-// DisableTOTP clears the user's TOTP secret and disables 2FA.
+// DisableTOTP clears the user's TOTP secret, recovery codes, and disables 2FA.
 func DisableTOTP(ctx context.Context, db *sql.DB, userID int64) error {
 	if userID <= 0 {
 		return ErrInvalidCredentials
 	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin disable TOTP: %w", err)
+	}
+	defer tx.Rollback()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	if _, err := db.ExecContext(ctx, `
-		UPDATE users SET totp_secret = '', totp_enabled = 0, updated_at = ?
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE users SET totp_secret = '', totp_enabled = 0, totp_last_step = -1, updated_at = ?
 		WHERE id = ?
 	`, now, userID); err != nil {
 		return fmt.Errorf("disable TOTP: %w", err)
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM user_recovery_codes WHERE user_id = ?`, userID); err != nil {
+		return fmt.Errorf("clear recovery codes: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit disable TOTP: %w", err)
+	}
 	return nil
 }
 
-// VerifyUserTOTP checks the code against the stored TOTP secret for the user.
+// RegenerateRecoveryCodes replaces all recovery codes for a user and returns the new plaintext codes once.
+func RegenerateRecoveryCodes(ctx context.Context, db *sql.DB, userID int64) ([]string, error) {
+	if userID <= 0 {
+		return nil, ErrInvalidCredentials
+	}
+	codes := make([]string, recoveryCodeCount)
+	hashes := make([]string, recoveryCodeCount)
+	for i := range codes {
+		code, err := generateRecoveryCode()
+		if err != nil {
+			return nil, err
+		}
+		codes[i] = code
+		hashes[i] = hashRecoveryCode(code)
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin recovery code regeneration: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM user_recovery_codes WHERE user_id = ?`, userID); err != nil {
+		return nil, fmt.Errorf("delete old recovery codes: %w", err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	for _, h := range hashes {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO user_recovery_codes (user_id, code_hash, created_at)
+			VALUES (?, ?, ?)
+		`, userID, h, now); err != nil {
+			return nil, fmt.Errorf("insert recovery code: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit recovery codes: %w", err)
+	}
+	return codes, nil
+}
+
+// RemainingRecoveryCodes returns the count of unused recovery codes for a user.
+func RemainingRecoveryCodes(ctx context.Context, db *sql.DB, userID int64) (int, error) {
+	if userID <= 0 {
+		return 0, nil
+	}
+	var count int
+	err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM user_recovery_codes
+		WHERE user_id = ? AND used_at IS NULL
+	`, userID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count recovery codes: %w", err)
+	}
+	return count, nil
+}
+
+// VerifyUserTOTP checks a 6-digit TOTP code (blocking replay within the TOTP window)
+// or a single-use recovery code against the user's 2FA configuration.
 func VerifyUserTOTP(ctx context.Context, db *sql.DB, userID int64, code string) (bool, error) {
+	return verifyUserTOTPAt(ctx, db, userID, code, time.Now())
+}
+
+func verifyUserTOTPAt(ctx context.Context, db *sql.DB, userID int64, code string, now time.Time) (bool, error) {
 	var secret string
 	var enabled int
+	var lastStep int64
 	err := db.QueryRowContext(ctx, `
-		SELECT totp_secret, totp_enabled FROM users WHERE id = ?
-	`, userID).Scan(&secret, &enabled)
+		SELECT totp_secret, totp_enabled, totp_last_step FROM users WHERE id = ?
+	`, userID).Scan(&secret, &enabled, &lastStep)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -150,5 +238,97 @@ func VerifyUserTOTP(ctx context.Context, db *sql.DB, userID int64, code string) 
 	if enabled != 1 || secret == "" {
 		return true, nil
 	}
-	return VerifyTOTP(secret, code, time.Now()), nil
+	if step, ok := VerifyTOTPWithStep(secret, code, now); ok {
+		if step <= lastStep {
+			return false, nil
+		}
+		res, err := db.ExecContext(ctx, `
+			UPDATE users SET totp_last_step = ?
+			WHERE id = ? AND totp_last_step < ?
+		`, step, userID, step)
+		if err != nil {
+			return false, fmt.Errorf("record TOTP step: %w", err)
+		}
+		affected, err := res.RowsAffected()
+		if err != nil {
+			return false, fmt.Errorf("check TOTP step update: %w", err)
+		}
+		return affected == 1, nil
+	}
+	return consumeRecoveryCode(ctx, db, userID, code, now)
+}
+
+func consumeRecoveryCode(ctx context.Context, db *sql.DB, userID int64, rawCode string, now time.Time) (bool, error) {
+	normalized := normalizeRecoveryCode(rawCode)
+	if len(normalized) != recoveryCodeHalfLength*2 {
+		return false, nil
+	}
+	candidateHash := hashRecoveryCode(normalized)
+	rows, err := db.QueryContext(ctx, `
+		SELECT id, code_hash FROM user_recovery_codes
+		WHERE user_id = ? AND used_at IS NULL
+	`, userID)
+	if err != nil {
+		return false, fmt.Errorf("load recovery codes: %w", err)
+	}
+	defer rows.Close()
+
+	var matchedID int64
+	for rows.Next() {
+		var id int64
+		var storedHash string
+		if err := rows.Scan(&id, &storedHash); err != nil {
+			return false, fmt.Errorf("scan recovery code: %w", err)
+		}
+		if subtle.ConstantTimeCompare([]byte(candidateHash), []byte(storedHash)) == 1 && matchedID == 0 {
+			matchedID = id
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, fmt.Errorf("read recovery codes: %w", err)
+	}
+	if matchedID == 0 {
+		return false, nil
+	}
+	res, err := db.ExecContext(ctx, `
+		UPDATE user_recovery_codes SET used_at = ?
+		WHERE id = ? AND used_at IS NULL
+	`, now.UTC().Format(time.RFC3339Nano), matchedID)
+	if err != nil {
+		return false, fmt.Errorf("mark recovery code used: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("check recovery code update: %w", err)
+	}
+	return affected == 1, nil
+}
+
+func generateRecoveryCode() (string, error) {
+	total := recoveryCodeHalfLength * 2
+	raw := make([]byte, total)
+	if _, err := rand.Read(raw); err != nil {
+		return "", fmt.Errorf("generate recovery code: %w", err)
+	}
+	var b strings.Builder
+	b.Grow(total + 1)
+	for i, v := range raw {
+		if i == recoveryCodeHalfLength {
+			b.WriteByte('-')
+		}
+		b.WriteByte(recoveryCodeAlphabet[int(v)%len(recoveryCodeAlphabet)])
+	}
+	return b.String(), nil
+}
+
+func normalizeRecoveryCode(code string) string {
+	code = strings.ToUpper(strings.TrimSpace(code))
+	code = strings.ReplaceAll(code, "-", "")
+	code = strings.ReplaceAll(code, " ", "")
+	return code
+}
+
+func hashRecoveryCode(code string) string {
+	sum := sha256.Sum256([]byte(normalizeRecoveryCode(code)))
+	return hex.EncodeToString(sum[:])
 }

@@ -623,13 +623,14 @@ func (h *handler) submitPublicForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := h.builder.SaveFormSubmission(r.Context(), builder.FormSubmission{
+	submission := builder.FormSubmission{
 		FormID:      formID,
 		PagePath:    pagePath,
 		SenderName:  r.FormValue("name"),
 		SenderEmail: r.FormValue("email"),
 		Message:     r.FormValue("message"),
-	})
+	}
+	_, err := h.builder.SaveFormSubmission(r.Context(), submission)
 	if errors.Is(err, builder.ErrInvalidInput) {
 		http.Redirect(w, r, pagePath+"?form_error="+url.QueryEscape(formID)+"#"+url.PathEscape(formID), http.StatusSeeOther)
 		return
@@ -639,6 +640,7 @@ func (h *handler) submitPublicForm(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Não foi possível processar o formulário.", http.StatusInternalServerError)
 		return
 	}
+	go h.dispatchFormNotifications(submission)
 	http.Redirect(w, r, pagePath+"?form_submitted="+url.QueryEscape(formID)+"#"+url.PathEscape(formID), http.StatusSeeOther)
 }
 

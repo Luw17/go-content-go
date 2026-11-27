@@ -8,11 +8,15 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
 )
+
+const DefaultBackupRetention = 10
 
 func HotBackup(ctx context.Context, db *sql.DB, directory string) (string, error) {
 	if db == nil || directory == "" {
@@ -112,7 +116,47 @@ func Optimize(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
+// PruneBackups removes older local backup files beyond keep, retaining the most recent ones.
+func PruneBackups(directory string, keep int) (int, error) {
+	if directory == "" || keep <= 0 {
+		return 0, nil
+	}
+	entries, err := os.ReadDir(directory)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("list backup directory: %w", err)
+	}
+	var names []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasPrefix(name, "go-content-go-") && strings.HasSuffix(name, ".db") {
+			names = append(names, name)
+		}
+	}
+	if len(names) <= keep {
+		return 0, nil
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(names)))
+	removed := 0
+	for _, name := range names[keep:] {
+		if err := os.Remove(filepath.Join(directory, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return removed, fmt.Errorf("remove old backup %q: %w", name, err)
+		}
+		removed++
+	}
+	return removed, nil
+}
+
 func RunScheduledBackups(ctx context.Context, db *sql.DB, directory string, interval time.Duration) {
+	RunScheduledBackupsWithRetention(ctx, db, directory, interval, DefaultBackupRetention)
+}
+
+func RunScheduledBackupsWithRetention(ctx context.Context, db *sql.DB, directory string, interval time.Duration, keep int) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -130,6 +174,11 @@ func RunScheduledBackups(ctx context.Context, db *sql.DB, directory string, inte
 				continue
 			}
 			log.Printf("scheduled database backup created: %s", path)
+			if removed, pruneErr := PruneBackups(directory, keep); pruneErr != nil {
+				log.Printf("prune old database backups: %v", pruneErr)
+			} else if removed > 0 {
+				log.Printf("pruned %d old database backup(s)", removed)
+			}
 		}
 	}
 }

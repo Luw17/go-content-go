@@ -5,7 +5,31 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Go Version](https://img.shields.io/badge/go-%3E%3D1.22-blue)](https://golang.org/)
 
-**Go Content Go!** é um CMS moderno desenvolvido para ser a alternativa leve, segura e instantânea ao WordPress. Esqueça o overhead de servidores PHP, bancos de dados complexos e centenas de plugins inchados: aqui tudo roda em um único binário compilado.
+**Go Content Go! (`gcg`)** é um CMS moderno desenvolvido para ser a alternativa leve, segura e instantânea ao WordPress — dev-first, híbrido (SSR + Headless API) e pronto para fluxos com IA. Esqueça o overhead de servidores PHP, bancos de dados complexos e centenas de plugins inchados: aqui tudo roda em um único binário compilado (`gcg`).
+
+## Início rápido com o binário `gcg`
+
+Compile ou baixe o binário da sua plataforma (`make build` gera `dist/gcg-<os>-<arch>` e `dist/SHA256SUMS.txt`):
+
+```sh
+# Subir o servidor HTTP (padrão na porta :8080)
+./gcg
+# ou explicitamente com flags:
+./gcg serve --addr :8080 --db data/go-content-go.db
+```
+
+### Subcomandos operacionais do CLI (`gcg`)
+
+```sh
+./gcg serve [--addr :8080]               # Inicia o servidor HTTP (padrão sem subcomando)
+./gcg version                            # Exibe a versão compilada do binário
+./gcg backup [--db ... --backups ...]    # Executa hot backup imediato do SQLite + retenção
+./gcg reset-password --user admin        # Redefine senha e revoga sessões ativas do usuário
+./gcg disable-2fa --user admin           # Recuperação de emergência: desativa 2FA (TOTP + recovery codes)
+./gcg help                               # Exibe ajuda e variáveis de ambiente
+```
+
+Todas as configurações podem ser definidas via flags, `.env` ou variáveis curtas `GCG_*` (`GCG_ADDR`, `GCG_PORT`, `GCG_DB`, `GCG_UPLOADS`, `GCG_BACKUPS`, `GCG_BACKUP_RETENTION`, `GCG_THEMES`, `GCG_PLUGINS`, `GCG_API_RATE_LIMIT`, `GCG_TRUSTED_PROXIES`). As variáveis legadas `GO_CONTENT_GO_*` continuam 100% compatíveis.
 
 ## Docker
 
@@ -16,8 +40,8 @@ docker compose up -d --build
 ```
 
 Abra `http://localhost:8080/admin/setup` para criar a conta de administrador.
-Para usar outra porta no host, defina `GO_CONTENT_GO_PORT`, por exemplo
-`GO_CONTENT_GO_PORT=9000 docker compose up -d --build`.
+Para usar outra porta no host, defina `GCG_PORT` (ou `GO_CONTENT_GO_PORT`), por exemplo
+`GCG_PORT=9000 docker compose up -d --build`.
 
 O Compose mantém o banco, uploads, backups, temas e plugins em volumes
 persistentes nomeados. Os temas oficiais `default` e `editorial` ficam embutidos
@@ -42,8 +66,8 @@ O painel limita tentativas de login a cinco por minuto por endereço IP e
 bloqueia novas tentativas por 15 minutos após cinco falhas. Uploads de mídia,
 temas e plugins compartilham um limite de 10 requisições por minuto e por IP.
 A API REST aceita 60 requisições por minuto por IP por padrão; ajuste com
-`GO_CONTENT_GO_API_RATE_LIMIT` (de 1 a 10000) ou com a flag
-`-api-rate-limit`. Os limites são mantidos em memória por processo.
+`GCG_API_RATE_LIMIT` (ou `GO_CONTENT_GO_API_RATE_LIMIT`, de 1 a 10000) ou com a flag
+`--api-rate-limit`. Os limites são mantidos em memória por processo.
 
 O painel também aplica tokens CSRF em todos os métodos que alteram dados,
 cookies `HttpOnly` e `SameSite=Strict`, rotação de sessão após autenticação,

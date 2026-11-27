@@ -71,7 +71,7 @@ Welcome to the **Go Content Go!** development roadmap. This document outlines ou
 - [x] Docker image and CGO-free builds for Linux, macOS, and Windows.
 - [x] Rate limiting on login and public API endpoints.
 
-Run `make build` to generate the five platform binaries under `dist/`. Build the minimal container with `docker build -t go-content-go .`; mount persistent volumes for `/app/data`, `/app/uploads`, and `/app/backups`.
+Run `make build` to generate the five platform binaries (`dist/gcg-<os>-<arch>`) and `dist/SHA256SUMS.txt`. Build the minimal container with `docker build -t go-content-go .`; mount persistent volumes for `/app/data`, `/app/uploads`, and `/app/backups`.
 
 ---
 
@@ -180,3 +180,48 @@ Este roadmap detalha as fases de desenvolvimento focadas em transformar o core r
     [x] Validação da documentação final de temas e plugins.
 
     [ ] Lançamento da versão 2.0.0 estável.
+
+---
+
+## 🧭 Roadmap Pós-v2.0 (Produção, SEO, UX & Escala)
+
+> Diagnóstico técnico completo em [docs/ANALISE_E_ROADMAP.md](docs/ANALISE_E_ROADMAP.md).
+
+### Onda 0 — Correções Críticas de Produção & Indexação (v2.0.1 — Prioridade Máxima)
+- [x] Gerar `/sitemap.xml` dinâmico e cacheado (Home, páginas e posts publicados sem `noindex`, com `<lastmod>`).
+- [x] Gerar `/robots.txt` dinâmico apontando `Sitemap:` e bloqueando `/admin/` e `/api/`.
+- [x] Suportar método `HEAD` nas rotas públicas (`/`, `/{slug}`, `/sitemap.xml`, `/robots.txt`).
+- [x] Suporte seguro a Proxy Reverso (`GO_CONTENT_GO_TRUSTED_PROXIES`): IP real via `X-Forwarded-For` para rate limit/cooldown e flag `Secure` nos cookies via `X-Forwarded-Proto`.
+- [x] Corrigir fluxo de 2FA (não penalizar etapa 1 sem código, bloquear replay na janela TOTP e adicionar recovery codes).
+- [x] Política de retenção de backups (evitar acúmulo infinito em disco).
+
+### Onda 1 — Crescimento Orgânico & Descoberta de Conteúdo (v2.1)
+- [x] Paginação na Home com `rel="prev"`/`rel="next"` (remover teto fixo de 20 posts).
+- [x] Páginas de arquivo de Categorias (`/categoria/{slug}`) e Tags (`/tag/{slug}`) incluídas no sitemap.
+- [x] Feed RSS 2.0 (`/rss.xml`) com autodiscovery no `<head>`.
+- [x] Gerenciador de Redirecionamentos 301/302 (com 301 automático opcional ao alterar slug).
+- [x] Favicon / Apple Touch Icon configurável em `/admin/settings` + rota `/favicon.ico`.
+- [x] Busca pública (`/search`) via SQLite FTS5.
+- [x] Posts relacionados e tempo estimado de leitura nos temas oficiais.
+
+### Onda 2 — Experiência Editorial, Gestão e Conversão (v2.2)
+- [x] Dashboard com KPIs e Checklist de Saúde SEO & Segurança (`site_url`, `noindex`, 2FA, último backup).
+- [x] Gestão completa de Usuários (trocar senha, editar papel, desativar/excluir, revogar sessões).
+- [x] Sidebar do admin adaptada ao papel (RBAC) para `editor` e `author`.
+- [x] Agendamento de publicação (`scheduled_at`) e histórico de revisões de conteúdo.
+- [x] Toolbar Markdown, autosave local e busca/filtros/paginação nas listagens do admin.
+- [x] Notificação (Webhook/SMTP) e exportação CSV para envios de formulários do Page Builder.
+
+### Onda 3 — Headless v2, Mídia Moderna e Ecossistema (v2.3+)
+- [x] API REST enriquecida (`content_html`, `featured_image`, `author`, `categories`, `tags`, `seo`, além de `/pages`, `/categories`, `/menus`, `/site` e API keys).
+- [x] Pipeline de mídia: edição de `alt_text`/descrição, thumbnails/WebP e storage S3/R2 opcional.
+- [x] Compressão HTTP (`gzip`) e cache-busting (`?v=hash`) nos assets de temas.
+- [x] Importador/Exportador (Markdown, WordPress WXR, JSON).
+- [x] Padronizar logs em `slog`, remover código morto (`adminPlaceholder`) e avaliar runtime WASM (`wazero`).
+
+### Onda 4 — Plataforma Dev-First & Pronta para IA (`gcg` v2.4+)
+- [x] Padronizar binário/CLI como `gcg` com aliases `GCG_*` e subcomandos operacionais (`serve`, `version`, `backup`, `reset-password`, `disable-2fa`).
+- [ ] Endpoint `/llms.txt` nativo para indexação estruturada por agentes de IA.
+- [ ] MCP Server nativo embutido no `gcg` (`gcg mcp`) para agentes criarem e gerenciarem conteúdo, páginas e temas.
+- [ ] Webhooks de conteúdo (`post.published`, `post.updated`, `post.deleted`) para rebuild automático de frontends Headless/SSG.
+- [ ] Documentação OpenAPI completa da `/api/v1/` e 2–3 plugins Lua oficiais de referência.

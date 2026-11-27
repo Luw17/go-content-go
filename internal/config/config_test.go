@@ -114,6 +114,61 @@ func TestLoadRejectsInvalidDotenv(t *testing.T) {
 	}
 }
 
+func TestLoadTrustedProxiesAndBackupRetention(t *testing.T) {
+	unsetEnv(t, "GO_CONTENT_GO_TRUSTED_PROXIES")
+	unsetEnv(t, "GO_CONTENT_GO_BACKUP_RETENTION")
+	envFile := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(envFile, []byte("GO_CONTENT_GO_TRUSTED_PROXIES=127.0.0.1,10.0.0.0/8,::1\nGO_CONTENT_GO_BACKUP_RETENTION=7\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load([]string{"-env-file", envFile})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(cfg.TrustedProxies) != 3 || cfg.TrustedProxies[0] != "127.0.0.1" || cfg.TrustedProxies[1] != "10.0.0.0/8" || cfg.TrustedProxies[2] != "::1" {
+		t.Fatalf("TrustedProxies = %v, want [127.0.0.1 10.0.0.0/8 ::1]", cfg.TrustedProxies)
+	}
+	if cfg.BackupRetention != 7 {
+		t.Fatalf("BackupRetention = %d, want 7", cfg.BackupRetention)
+	}
+	if _, err := Load([]string{"-env-file", envFile, "-trusted-proxies", "not-an-ip"}); err == nil {
+		t.Fatal("Load() accepted an invalid trusted proxy entry")
+	}
+	if _, err := Load([]string{"-env-file", envFile, "-backup-retention", "0"}); err == nil {
+		t.Fatal("Load() accepted a zero backup retention")
+	}
+}
+
+func TestLoadGCGAliasesAndPortFallback(t *testing.T) {
+	unsetEnv(t, "GCG_ADDR")
+	unsetEnv(t, "GO_CONTENT_GO_ADDR")
+	unsetEnv(t, "GCG_PORT")
+	unsetEnv(t, "GO_CONTENT_GO_PORT")
+	unsetEnv(t, "GCG_DB")
+	unsetEnv(t, "GO_CONTENT_GO_DB")
+	unsetEnv(t, "GCG_TRUSTED_PROXIES")
+	unsetEnv(t, "GO_CONTENT_GO_TRUSTED_PROXIES")
+
+	t.Setenv("GCG_PORT", "9090")
+	t.Setenv("GO_CONTENT_GO_DB", "legacy.db")
+	t.Setenv("GCG_DB", "short.db")
+	t.Setenv("GCG_TRUSTED_PROXIES", "127.0.0.1,10.0.0.0/8")
+
+	cfg, err := Load([]string{"-env-file", filepath.Join(t.TempDir(), "missing.env")})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Address != ":9090" {
+		t.Errorf("Address = %q, want :9090 from GCG_PORT", cfg.Address)
+	}
+	if cfg.DatabasePath != "short.db" {
+		t.Errorf("DatabasePath = %q, want short.db (GCG_DB takes precedence over GO_CONTENT_GO_DB)", cfg.DatabasePath)
+	}
+	if len(cfg.TrustedProxies) != 2 {
+		t.Errorf("TrustedProxies = %v, want 2 entries", cfg.TrustedProxies)
+	}
+}
+
 func unsetEnv(t *testing.T, key string) {
 	t.Helper()
 	value, exists := os.LookupEnv(key)

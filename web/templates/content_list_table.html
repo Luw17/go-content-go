@@ -12,7 +12,7 @@
       <tr>
         <td><a class="content-title" href="/admin/{{.Type}}s/{{.ID}}/edit">{{.Title}}</a><span class="content-slug">/{{.Slug}}</span></td>
         <td><span class="status status-{{.Status}}">{{if eq .Status "published"}}Publicado{{else}}Rascunho{{end}}</span></td>
-        <td>{{.UpdatedAt}}</td>
+        <td title="{{.UpdatedAt}}">{{formatDateTime .UpdatedAt}}</td>
         <td>
           <div class="row-actions">
             <a href="/admin/{{.Type}}s/{{.ID}}/edit">Editar</a>

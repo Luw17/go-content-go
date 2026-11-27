@@ -4,13 +4,17 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Configuração inicial | Go Content Go!</title>
+    <link rel="icon" type="image/svg+xml" href="/static/brand/gcg-icon.svg">
     <link rel="stylesheet" href="/static/style.css?v={{staticVersion "style.css"}}">
   </head>
   <body>
-    <main>
+    <main class="auth-card">
+      <div class="auth-brand">
+        <img class="auth-logo" src="/static/brand/gcg-logo-light.svg" alt="Go Content Go">
+      </div>
       <p class="eyebrow">Configuração inicial</p>
       <h1>Criar administrador</h1>
-      <p>Este primeiro usuário terá acesso de administrador ao CMS.</p>
+      <p class="auth-subtitle">Este primeiro usuário terá acesso de administrador ao CMS.</p>
       {{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
       <form method="post" action="/admin/setup">
         <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">

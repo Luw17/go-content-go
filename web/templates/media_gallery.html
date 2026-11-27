@@ -4,15 +4,26 @@
   <form class="media-upload" method="post" action="/admin/media/upload" enctype="multipart/form-data"
     hx-post="/admin/media/upload" hx-encoding="multipart/form-data" hx-target="#media-content" hx-swap="innerHTML">
     <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-    <div class="upload-picker">
-      <label for="media-file">Adicionar arquivos</label>
-      <input id="media-file" name="file" type="file" accept=".jpg,.jpeg,.png,.webp,.gif,.svg,.pdf"
-        aria-describedby="media-file-help" required>
-      <p id="media-file-help" class="muted">JPG, PNG, WebP, GIF, SVG ou PDF. Até {{formatBytes .MaxUploadSize}} por arquivo.</p>
-      <label for="media-alt">Texto alternativo <span class="muted">(opcional)</span></label>
-      <input id="media-alt" name="alt_text" type="text" maxlength="500" placeholder="Descreva a imagem">
-      <button class="button button-primary" type="submit">Enviar arquivo</button>
+    <div class="upload-picker settings-form">
+      <div class="field-group">
+        <label for="media-file">Adicionar arquivos</label>
+        <input id="media-file" name="file" type="file" accept=".jpg,.jpeg,.png,.webp,.gif,.svg,.pdf"
+          aria-describedby="media-file-help" required>
+        <p id="media-file-help" class="muted">JPG, PNG, WebP, GIF, SVG ou PDF. Até {{formatBytes .MaxUploadSize}} por arquivo.</p>
+      </div>
+      <div class="field-group">
+        <label for="media-alt">Texto alternativo <span class="muted">(opcional)</span></label>
+        <input id="media-alt" name="alt_text" type="text" maxlength="500" placeholder="Descreva a imagem">
+      </div>
+      <div>
+        <button class="button button-primary" type="submit">Enviar arquivo</button>
+      </div>
     </div>
+  </form>
+  <form class="media-filter-bar" method="get" action="/admin/media">
+    <input name="q" type="search" value="{{.FilterQuery}}" placeholder="Buscar por nome, texto alternativo ou descrição…">
+    <button class="button" type="submit">Filtrar</button>
+    {{if .FilterQuery}}<a class="button" href="/admin/media">Limpar</a>{{end}}
   </form>
   <div class="media-grid">
     {{if .MediaItems}}
@@ -20,7 +31,7 @@
         <article class="media-card">
           <div class="media-preview">
             {{if hasPrefix .FileType "image/"}}
-              <img src="{{.Filepath}}" alt="{{.AltText}}" loading="lazy">
+              <img src="{{if .ThumbnailPath}}{{.ThumbnailPath}}{{else}}{{.Filepath}}{{end}}" alt="{{.AltText}}" loading="lazy">
             {{else}}
               <span class="media-file-icon">PDF</span>
             {{end}}
@@ -29,6 +40,12 @@
             <strong title="{{.Filename}}">{{.Filename}}</strong>
             <span class="muted">{{formatBytes .FileSize}}</span>
           </div>
+          <form class="media-metadata-form" method="post" action="/admin/media/{{.ID}}/metadata">
+            <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+            <input name="alt_text" type="text" maxlength="500" value="{{.AltText}}" placeholder="Texto alternativo (alt)">
+            <input name="description" type="text" maxlength="2000" value="{{.Description}}" placeholder="Descrição">
+            <button class="button" type="submit">Salvar metadados</button>
+          </form>
           <div class="media-card-actions">
             <button type="button" class="copy-media-url" data-copy-url="{{.Filepath}}">Copiar URL</button>
             <form method="post" action="/admin/media/{{.ID}}/delete"
@@ -41,7 +58,14 @@
         </article>
       {{end}}
     {{else}}
-      <p class="empty-state">Nenhuma mídia enviada ainda.</p>
+      <p class="empty-state">{{if .FilterQuery}}Nenhuma mídia encontrada para "{{.FilterQuery}}".{{else}}Nenhuma mídia enviada ainda.{{end}}</p>
     {{end}}
   </div>
+  {{if and .AdminPagination (gt .AdminPagination.TotalPages 1)}}
+    <nav class="editor-actions mt-md" aria-label="Paginação da biblioteca de mídias">
+      {{if .AdminPagination.HasPrev}}<a class="button" href="{{.AdminPagination.PrevURL}}">← Anterior</a>{{end}}
+      <span class="muted">Página {{.AdminPagination.Page}} de {{.AdminPagination.TotalPages}} ({{.AdminPagination.TotalItems}} itens)</span>
+      {{if .AdminPagination.HasNext}}<a class="button" href="{{.AdminPagination.NextURL}}">Próxima →</a>{{end}}
+    </nav>
+  {{end}}
 {{end}}

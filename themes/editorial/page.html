@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="light">
     {{if .Item.SEODescription}}<meta name="description" content="{{.Item.SEODescription}}">{{else if .Item.Summary}}<meta name="description" content="{{.Item.Summary}}">{{else if .Site.Tagline}}<meta name="description" content="{{.Site.Tagline}}">{{end}}
     <title>{{if .Item.SEOTitle}}{{.Item.SEOTitle}}{{else}}{{.Item.Title}} | {{.Site.Title}}{{end}}</title>
-    <link rel="stylesheet" href="/themes/{{.Theme}}/style.css">
+    <link rel="stylesheet" href="{{theme_asset .Theme "style.css"}}">
     {{.HeadTags}}
   </head>
   <body>

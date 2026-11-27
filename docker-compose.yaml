@@ -6,7 +6,7 @@ services:
     image: go-content-go:latest
     restart: unless-stopped
     ports:
-      - "${GO_CONTENT_GO_PORT:-8080}:8080"
+      - "${GCG_PORT:-${GO_CONTENT_GO_PORT:-8080}}:8080"
     volumes:
       - cms-data:/app/data
       - cms-uploads:/app/uploads
@@ -14,13 +14,15 @@ services:
       - cms-themes:/app/themes
       - cms-plugins:/app/plugins
     environment:
-      GO_CONTENT_GO_ADDR: ":8080"
-      GO_CONTENT_GO_DB: /app/data/go-content-go.db
-      GO_CONTENT_GO_UPLOADS: /app/uploads
-      GO_CONTENT_GO_BACKUPS: /app/backups
-      GO_CONTENT_GO_API_RATE_LIMIT: ${GO_CONTENT_GO_API_RATE_LIMIT:-60}
-      GO_CONTENT_GO_THEMES: /app/themes
-      GO_CONTENT_GO_PLUGINS: /app/plugins
+      GCG_ADDR: ":8080"
+      GCG_DB: /app/data/go-content-go.db
+      GCG_UPLOADS: /app/uploads
+      GCG_BACKUPS: /app/backups
+      GCG_BACKUP_RETENTION: ${GCG_BACKUP_RETENTION:-${GO_CONTENT_GO_BACKUP_RETENTION:-10}}
+      GCG_API_RATE_LIMIT: ${GCG_API_RATE_LIMIT:-${GO_CONTENT_GO_API_RATE_LIMIT:-60}}
+      GCG_TRUSTED_PROXIES: ${GCG_TRUSTED_PROXIES:-${GO_CONTENT_GO_TRUSTED_PROXIES:-}}
+      GCG_THEMES: /app/themes
+      GCG_PLUGINS: /app/plugins
 
 volumes:
   cms-data:

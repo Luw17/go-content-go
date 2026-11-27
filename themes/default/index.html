@@ -4,9 +4,9 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light dark">
-    {{if .Site.SEODefaultDescription}}<meta name="description" content="{{.Site.SEODefaultDescription}}">{{else if .Site.Tagline}}<meta name="description" content="{{.Site.Tagline}}">{{end}}
-    <title>{{.Site.Title}}</title>
-    <link rel="stylesheet" href="/themes/{{.Theme}}/style.css">
+    {{if .ArchiveDescription}}<meta name="description" content="{{.ArchiveDescription}}">{{else if .Site.SEODefaultDescription}}<meta name="description" content="{{.Site.SEODefaultDescription}}">{{else if .Site.Tagline}}<meta name="description" content="{{.Site.Tagline}}">{{end}}
+    <title>{{if .ArchiveTitle}}{{.ArchiveTitle}} | {{.Site.Title}}{{else}}{{.Site.Title}}{{end}}</title>
+    <link rel="stylesheet" href="{{theme_asset .Theme "style.css"}}">
     {{.HeadTags}}
   </head>
   <body>
@@ -25,13 +25,24 @@
     {{else}}
     <main class="site-main">
       <section class="intro">
-        <p class="eyebrow">{{.Site.Title}}</p>
-        <h1>{{.Site.HomeIntroTitle}}</h1>
-        {{if .Site.Tagline}}<p class="intro-copy">{{.Site.Tagline}}</p>{{end}}
+        {{if .ArchiveTitle}}
+          <p class="eyebrow">{{if .ArchiveEyebrow}}{{.ArchiveEyebrow}}{{else}}{{.Site.Title}}{{end}}</p>
+          <h1>{{.ArchiveTitle}}</h1>
+          {{if .ArchiveDescription}}<p class="intro-copy">{{.ArchiveDescription}}</p>{{end}}
+        {{else}}
+          <p class="eyebrow">{{.Site.Title}}</p>
+          <h1>{{.Site.HomeIntroTitle}}</h1>
+          {{if .Site.Tagline}}<p class="intro-copy">{{.Site.Tagline}}</p>{{end}}
+        {{end}}
+        <form class="search-form" action="/search" method="get" role="search">
+          <label class="sr-only" for="site-search">Buscar publicações</label>
+          <input id="site-search" name="q" type="search" value="{{.SearchQuery}}" placeholder="Buscar artigos…">
+          <button type="submit">Buscar</button>
+        </form>
       </section>
       <section class="post-list" aria-labelledby="latest-posts">
         <div class="section-heading">
-          <h2 id="latest-posts">{{.Site.HomePostsTitle}}</h2>
+          <h2 id="latest-posts">{{if .ArchiveTitle}}Publicações{{else}}{{.Site.HomePostsTitle}}{{end}}</h2>
         </div>
         {{if .Posts}}
           {{range .Posts}}
@@ -46,6 +57,7 @@
                   {{if .FormattedPublishedAt}}<time datetime="{{.PublishedAt}}">{{.FormattedPublishedAt}}</time>{{end}}
                   {{if and .FormattedPublishedAt .Author}}<span aria-hidden="true">·</span>{{end}}
                   {{if .Author}}<span>Por {{.Author}}</span>{{end}}
+                  {{if .ReadingTimeMinutes}}<span aria-hidden="true">·</span><span>{{.ReadingTimeMinutes}} min de leitura</span>{{end}}
                 </div>
                 <h3><a href="/{{.Slug}}">{{.Title}}</a></h3>
                 {{if .Summary}}<p class="post-summary">{{.Summary}}</p>{{end}}
@@ -53,10 +65,22 @@
               </div>
             </article>
           {{end}}
+          {{if and .Pagination (gt .Pagination.TotalPages 1)}}
+            <nav class="pagination" aria-label="Paginação">
+              {{if .Pagination.HasPrev}}<a class="pagination-link" href="{{.Pagination.PrevURL}}" rel="prev">← Anteriores</a>{{else}}<span class="pagination-spacer"></span>{{end}}
+              <span class="pagination-status">Página {{.Pagination.Page}} de {{.Pagination.TotalPages}}</span>
+              {{if .Pagination.HasNext}}<a class="pagination-link" href="{{.Pagination.NextURL}}" rel="next">Próximos →</a>{{else}}<span class="pagination-spacer"></span>{{end}}
+            </nav>
+          {{end}}
         {{else}}
           <div class="empty-state">
-            <h3>As primeiras histórias estão a caminho.</h3>
-            <p>Quando um post for publicado, ele aparecerá aqui.</p>
+            {{if .IsSearch}}
+              <h3>Nenhum resultado encontrado.</h3>
+              <p>Tente buscar por outros termos ou <a href="/">volte para a página inicial</a>.</p>
+            {{else}}
+              <h3>As primeiras histórias estão a caminho.</h3>
+              <p>Quando um post for publicado, ele aparecerá aqui.</p>
+            {{end}}
           </div>
         {{end}}
       </section>
@@ -69,6 +93,16 @@
       </a>
       {{if .Site.Tagline}}<p>{{.Site.Tagline}}</p>{{end}}
       {{render_menu "footer"}}
+      <p class="powered-by">
+        <a href="https://github.com/Luw17/go-content-go" target="_blank" rel="noopener noreferrer">
+          <svg class="powered-by-icon" viewBox="0 0 64 64" width="14" height="14" fill="none" aria-hidden="true">
+            <path d="M8 8H42L56 22V56H22L8 42V8Z" fill="currentColor" opacity="0.22"/>
+            <path d="M21 20L33 32L21 44H27.5L39.5 32L27.5 20H21Z" fill="currentColor"/>
+            <path d="M34 20L46 32L34 44H40.5L52.5 32L40.5 20H34Z" fill="#00ADD8"/>
+          </svg>
+          <span>Feito com Go Content Go</span>
+        </a>
+      </p>
     </footer>
     {{end}}
   </body>

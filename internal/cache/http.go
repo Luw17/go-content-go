@@ -50,13 +50,20 @@ func (c *Cache) Middleware(next http.Handler) http.Handler {
 
 func (c *Cache) MiddlewareWithKey(next http.Handler, cacheKey func(*http.Request) string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.Header.Get("Authorization") != "" || r.Header.Get("Cookie") != "" {
+		if (r.Method != http.MethodGet && r.Method != http.MethodHead) ||
+			r.Header.Get("Authorization") != "" ||
+			r.Header.Get("X-API-Key") != "" ||
+			r.Header.Get("Cookie") != "" {
 			next.ServeHTTP(w, r)
 			return
 		}
 		key := cacheKey(r)
 		if cached, ok := c.get(key); ok {
 			writeCached(w, r, cached)
+			return
+		}
+		if r.Method == http.MethodHead {
+			next.ServeHTTP(w, r)
 			return
 		}
 		recorder := newCaptureWriter()
@@ -121,6 +128,9 @@ func (c *Cache) set(key string, value entry) {
 func writeCached(w http.ResponseWriter, r *http.Request, cached entry) {
 	copyHeaders(w.Header(), cached.header)
 	w.Header().Set("ETag", cached.etag)
+	if w.Header().Get("Content-Length") == "" {
+		w.Header().Set("Content-Length", strconv.Itoa(len(cached.body)))
+	}
 	if etagMatches(r.Header.Get("If-None-Match"), cached.etag) {
 		w.WriteHeader(http.StatusNotModified)
 		return

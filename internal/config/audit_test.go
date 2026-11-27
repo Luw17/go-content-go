@@ -46,3 +46,35 @@ func TestAuditPermissionsFlagsUnsafeModesAndAcceptsSafeModes(t *testing.T) {
 		t.Errorf("missing path status = %q, want missing", findings[3].Status)
 	}
 }
+
+func TestFixPermissionsTightensUnsafeDirAndCreatesMissing(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permissions test")
+	}
+	dir := t.TempDir()
+	unsafeDir := filepath.Join(dir, "backups")
+	if err := os.MkdirAll(unsafeDir, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Chmod(unsafeDir, 0o777)
+	missingDir := filepath.Join(dir, "plugins")
+
+	targets := []AuditTarget{
+		{Label: "Backups", Path: unsafeDir},
+		{Label: "Plugins", Path: missingDir},
+	}
+	fixed, err := FixPermissions(targets)
+	if err != nil {
+		t.Fatalf("FixPermissions error: %v", err)
+	}
+	if fixed != 2 {
+		t.Fatalf("fixed = %d, want 2", fixed)
+	}
+
+	after := AuditPermissions(targets)
+	for _, f := range after {
+		if f.Status != "ok" {
+			t.Errorf("after fix %s status = %q (%s), want ok", f.Path, f.Status, f.Detail)
+		}
+	}
+}

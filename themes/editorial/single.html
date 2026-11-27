@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="light">
     {{if .Item.SEODescription}}<meta name="description" content="{{.Item.SEODescription}}">{{else if .Item.Summary}}<meta name="description" content="{{.Item.Summary}}">{{else if .Site.Tagline}}<meta name="description" content="{{.Site.Tagline}}">{{end}}
     <title>{{if .Item.SEOTitle}}{{.Item.SEOTitle}}{{else}}{{.Item.Title}} | {{.Site.Title}}{{end}}</title>
-    <link rel="stylesheet" href="/themes/{{.Theme}}/style.css">
+    <link rel="stylesheet" href="{{theme_asset .Theme "style.css"}}">
     {{.HeadTags}}
   </head>
   <body>
@@ -23,7 +23,7 @@
       <article class="article">
         <header class="article-header">
           {{if .Item.Categories}}
-            <p class="eyebrow">{{range $index, $category := .Item.Categories}}{{if $index}} / {{end}}{{$category.Name}}{{end}}</p>
+            <p class="eyebrow">{{range $index, $category := .Item.Categories}}{{if $index}} / {{end}}<a href="/categoria/{{$category.Slug}}">{{$category.Name}}</a>{{end}}</p>
           {{else}}
             <p class="eyebrow">Artigo <span aria-hidden="true">✳</span> {{.Site.Title}}</p>
           {{end}}
@@ -32,6 +32,7 @@
             {{if .Item.FormattedPublishedAt}}<time datetime="{{.Item.PublishedAt}}">{{.Item.FormattedPublishedAt}}</time>{{end}}
             {{if and .Item.FormattedPublishedAt .Item.Author}}<span aria-hidden="true">/</span>{{end}}
             {{if .Item.Author}}<span>Por {{.Item.Author}}</span>{{end}}
+            {{if .Item.ReadingTimeMinutes}}<span aria-hidden="true">/</span><span>{{.Item.ReadingTimeMinutes}} min de leitura</span>{{end}}
           </div>
         </header>
         {{if .Item.FeaturedImage}}
@@ -40,12 +41,33 @@
           </figure>
         {{end}}
         <div class="article-content">{{.Item.HTML}}</div>
-        {{if .Item.Tags}}
+        {{if .Item.TagLinks}}
+          <footer class="article-tags" aria-label="Tags">
+            {{range .Item.TagLinks}}<a class="tag" href="/tag/{{.Slug}}">#{{.Name}}</a>{{end}}
+          </footer>
+        {{else if .Item.Tags}}
           <footer class="article-tags" aria-label="Tags">
             {{range .Item.Tags}}<span class="tag">{{.}}</span>{{end}}
           </footer>
         {{end}}
       </article>
+      {{if .RelatedPosts}}
+        <section class="related-posts" aria-labelledby="related-heading">
+          <h2 id="related-heading">Artigos relacionados</h2>
+          <div class="related-grid">
+            {{range .RelatedPosts}}
+              <article class="related-card">
+                <div class="post-meta">
+                  {{if .FormattedPublishedAt}}<time datetime="{{.PublishedAt}}">{{.FormattedPublishedAt}}</time>{{end}}
+                  {{if .ReadingTimeMinutes}}<span aria-hidden="true">/</span><span>{{.ReadingTimeMinutes}} min de leitura</span>{{end}}
+                </div>
+                <h3><a href="/{{.Slug}}">{{.Title}}</a></h3>
+                {{if .Summary}}<p class="post-summary">{{.Summary}}</p>{{end}}
+              </article>
+            {{end}}
+          </div>
+        </section>
+      {{end}}
       <aside class="article-end">
         <span class="end-mark" aria-hidden="true">✳</span>
         <p>Obrigado por chegar até aqui.</p>

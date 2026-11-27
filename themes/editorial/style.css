@@ -1040,3 +1040,117 @@ a:focus-visible {
     grid-template-columns: 1fr;
   }
 }
+
+/* Search, Pagination, Archives, Related Posts */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.search-form {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+  max-width: 28rem;
+}
+
+.search-form input[type="search"] {
+  flex: 1;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid currentColor;
+  border-radius: 0.25rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.search-form button {
+  padding: 0.6rem 1rem;
+  border: 1px solid currentColor;
+  border-radius: 0.25rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 2.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+}
+
+.pagination-link {
+  text-decoration: none;
+  font-weight: 600;
+  color: inherit;
+}
+
+.pagination-link:hover {
+  text-decoration: underline;
+}
+
+.pagination-status {
+  font-size: 0.9rem;
+  opacity: 0.75;
+}
+
+.eyebrow a,
+a.tag {
+  color: inherit;
+  text-decoration: none;
+}
+
+.eyebrow a:hover,
+a.tag:hover {
+  text-decoration: underline;
+}
+
+.related-posts {
+  margin-top: 3rem;
+  padding-top: 2rem;
+  border-top: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+}
+
+.related-posts h2 {
+  font-size: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.related-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1.25rem;
+}
+
+.related-card {
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+  border-radius: 0.25rem;
+}
+
+.related-card h3 {
+  margin: 0.5rem 0;
+  font-size: 1.05rem;
+}
+
+.related-card h3 a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.related-card h3 a:hover {
+  text-decoration: underline;
+}

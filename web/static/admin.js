@@ -1,20 +1,63 @@
 "use strict";
 
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.className = "sr-only";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const ok = document.execCommand("copy");
+  document.body.removeChild(textarea);
+  if (!ok) {
+    throw new Error("copy failed");
+  }
+}
+
 document.addEventListener("click", async (event) => {
-  const button = event.target.closest("[data-copy-url]");
+  const button = event.target.closest("[data-copy-url], [data-copy-text], [data-copy-target]");
   if (!button) {
     return;
   }
 
+  let textToCopy = "";
+  if (button.dataset.copyUrl) {
+    textToCopy = new URL(button.dataset.copyUrl, window.location.origin).href;
+  } else if (button.dataset.copyText !== undefined) {
+    textToCopy = button.dataset.copyText;
+  } else if (button.dataset.copyTarget) {
+    const targetEl = document.getElementById(button.dataset.copyTarget);
+    if (!targetEl) {
+      return;
+    }
+    const codes = Array.from(targetEl.querySelectorAll("code"))
+      .map((el) => el.textContent.trim())
+      .filter(Boolean);
+    textToCopy = codes.length > 0 ? codes.join("\n") : targetEl.textContent.trim();
+  }
+
+  if (!textToCopy) {
+    return;
+  }
+
+  const originalText = button.dataset.originalLabel || button.textContent;
+  button.dataset.originalLabel = originalText;
+
   try {
-    await navigator.clipboard.writeText(new URL(button.dataset.copyUrl, window.location.origin).href);
-    const originalText = button.textContent;
+    await copyTextToClipboard(textToCopy);
     button.textContent = "Copiado!";
     window.setTimeout(() => {
       button.textContent = originalText;
     }, 1500);
   } catch {
     button.textContent = "Não foi possível copiar";
+    window.setTimeout(() => {
+      button.textContent = originalText;
+    }, 2000);
   }
 });
 
@@ -1027,3 +1070,258 @@ function initializeSectionEditor() {
   renderColumnsEditor();
   updatePreview();
 }
+
+// ── Markdown Toolbar & Local Autosave ───────────────────────────────────────
+
+document.addEventListener("click", (event) => {
+  const button = event.target instanceof Element ? event.target.closest("[data-md-action]") : null;
+  if (!button) return;
+  const textarea = document.getElementById("content");
+  if (!textarea) return;
+
+  const action = button.dataset.mdAction;
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const selected = textarea.value.slice(start, end);
+
+  const wrappers = {
+    bold: ["**", "**", "texto em negrito"],
+    italic: ["*", "*", "texto em itálico"],
+    h2: ["\n## ", "\n", "Subtítulo"],
+    link: ["[", "](https://exemplo.com)", "texto do link"],
+    list: ["\n- ", "", "item da lista"],
+    quote: ["\n> ", "", "citação"],
+    code: ["`", "`", "codigo"],
+  };
+  const spec = wrappers[action];
+  if (!spec) return;
+  const [before, after, placeholder] = spec;
+  const replacement = before + (selected || placeholder) + after;
+  textarea.setRangeText(replacement, start, end, "end");
+  textarea.focus();
+  textarea.dispatchEvent(new Event("input", { bubbles: true }));
+});
+
+function initializeLocalAutosave() {
+  const toolbar = document.querySelector("[data-autosave-key]");
+  const form = toolbar?.closest("form");
+  const titleInput = document.getElementById("title");
+  const contentInput = document.getElementById("content");
+  const statusEl = document.getElementById("autosave-status");
+  if (!toolbar || !form || !contentInput) return;
+
+  const storageKey = toolbar.dataset.autosaveKey;
+  if (!storageKey) return;
+
+  try {
+    const saved = window.localStorage.getItem(storageKey);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed && parsed.content && parsed.content !== contentInput.value && statusEl) {
+        statusEl.textContent = "Rascunho local disponível — ";
+        const restoreBtn = document.createElement("button");
+        restoreBtn.type = "button";
+        restoreBtn.className = "button";
+        restoreBtn.textContent = "Restaurar rascunho";
+        restoreBtn.addEventListener("click", () => {
+          if (titleInput && parsed.title) titleInput.value = parsed.title;
+          contentInput.value = parsed.content;
+          contentInput.dispatchEvent(new Event("input", { bubbles: true }));
+          statusEl.textContent = "Rascunho restaurado.";
+        });
+        statusEl.append(restoreBtn);
+      }
+    }
+  } catch {
+    // Ignore storage quota or privacy mode errors.
+  }
+
+  let timer = null;
+  const scheduleSave = () => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      try {
+        window.localStorage.setItem(storageKey, JSON.stringify({
+          title: titleInput?.value || "",
+          content: contentInput.value,
+          savedAt: new Date().toISOString(),
+        }));
+        if (statusEl) {
+          statusEl.textContent = "Salvo localmente";
+        }
+      } catch {
+        // Ignore storage errors.
+      }
+    }, 800);
+  };
+
+  titleInput?.addEventListener("input", scheduleSave);
+  contentInput.addEventListener("input", scheduleSave);
+  form.addEventListener("submit", () => {
+    try {
+      window.localStorage.removeItem(storageKey);
+    } catch {
+      // Ignore storage errors.
+    }
+  });
+}
+
+document.addEventListener("DOMContentLoaded", initializeLocalAutosave);
+document.body.addEventListener("htmx:afterSwap", initializeLocalAutosave);
+
+function formatLocalDatetimeInput(date) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function initializeSchedulePicker() {
+  const widget = document.querySelector("[data-schedule-widget]");
+  if (!widget || widget.dataset.initialized === "1") return;
+  widget.dataset.initialized = "1";
+
+  const hiddenInput = widget.querySelector("#scheduled_at");
+  const localInput = widget.querySelector("[data-schedule-input]");
+  const hintEl = widget.querySelector("[data-schedule-hint]");
+  const statusSelect = document.getElementById("status");
+  if (!hiddenInput || !localInput) return;
+
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "horário local";
+  const defaultHint = `Escolha data e hora no calendário (${tz}). Ao salvar como rascunho, será publicado automaticamente.`;
+
+  const updateHint = (date) => {
+    if (!hintEl) return;
+    if (!date || Number.isNaN(date.getTime())) {
+      hintEl.textContent = defaultHint;
+      return;
+    }
+    const formatted = new Intl.DateTimeFormat("pt-BR", {
+      dateStyle: "short",
+      timeStyle: "short",
+    }).format(date);
+    hintEl.textContent = `Agendado para ${formatted} (${tz}).`;
+  };
+
+  const syncFromHidden = () => {
+    const raw = hiddenInput.value.trim();
+    if (!raw) {
+      localInput.value = "";
+      updateHint(null);
+      return;
+    }
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) {
+      localInput.value = formatLocalDatetimeInput(parsed);
+      updateHint(parsed);
+    } else {
+      updateHint(null);
+    }
+  };
+
+  const syncFromLocal = () => {
+    const raw = localInput.value.trim();
+    if (!raw) {
+      hiddenInput.value = "";
+      updateHint(null);
+      return;
+    }
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) {
+      hiddenInput.value = "";
+      updateHint(null);
+      return;
+    }
+    hiddenInput.value = parsed.toISOString();
+    if (statusSelect && statusSelect.value === "published" && parsed.getTime() > Date.now()) {
+      statusSelect.value = "draft";
+    }
+    updateHint(parsed);
+  };
+
+  syncFromHidden();
+  localInput.addEventListener("input", syncFromLocal);
+  localInput.addEventListener("change", syncFromLocal);
+
+  widget.addEventListener("click", (event) => {
+    const presetBtn = event.target.closest("[data-schedule-preset]");
+    if (!presetBtn) return;
+
+    const preset = presetBtn.dataset.schedulePreset;
+    if (preset === "clear") {
+      localInput.value = "";
+      syncFromLocal();
+      return;
+    }
+
+    const target = new Date();
+    target.setSeconds(0, 0);
+    if (preset === "1h") {
+      target.setHours(target.getHours() + 1);
+    } else if (preset === "tomorrow9") {
+      target.setDate(target.getDate() + 1);
+      target.setHours(9, 0, 0, 0);
+    } else if (preset === "monday9") {
+      const day = target.getDay();
+      const daysUntilMonday = ((8 - day) % 7) || 7;
+      target.setDate(target.getDate() + daysUntilMonday);
+      target.setHours(9, 0, 0, 0);
+    }
+    localInput.value = formatLocalDatetimeInput(target);
+    syncFromLocal();
+  });
+}
+
+document.addEventListener("DOMContentLoaded", initializeSchedulePicker);
+document.body.addEventListener("htmx:afterSwap", initializeSchedulePicker);
+
+function initializeEditorSidebarWidgets() {
+  const tagsWidget = document.querySelector("[data-tags-widget]");
+  if (tagsWidget && tagsWidget.dataset.initialized !== "1") {
+    tagsWidget.dataset.initialized = "1";
+    const input = tagsWidget.querySelector("#tags");
+    const chipsBox = tagsWidget.querySelector("[data-tags-chips]");
+
+    const renderChips = () => {
+      if (!input || !chipsBox) return;
+      const tags = input.value
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean);
+      chipsBox.innerHTML = "";
+      tags.forEach((tag, idx) => {
+        const chip = document.createElement("span");
+        chip.className = "tag-chip";
+        const label = document.createElement("span");
+        label.textContent = `#${tag}`;
+        const removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.className = "tag-chip-remove";
+        removeBtn.setAttribute("aria-label", `Remover tag ${tag}`);
+        removeBtn.textContent = "×";
+        removeBtn.addEventListener("click", () => {
+          const next = tags.filter((_, i) => i !== idx);
+          input.value = next.join(", ");
+          renderChips();
+        });
+        chip.append(label, removeBtn);
+        chipsBox.append(chip);
+      });
+    };
+
+    renderChips();
+    input?.addEventListener("input", renderChips);
+  }
+}
+
+document.addEventListener("click", (event) => {
+  const clearBtn = event.target instanceof Element ? event.target.closest("[data-clear-featured]") : null;
+  if (!clearBtn) return;
+  const input = document.getElementById("featured_image");
+  const preview = document.getElementById("featured-image-preview");
+  if (input) input.value = "";
+  if (preview) {
+    preview.innerHTML = '<p class="muted">Nenhuma imagem selecionada.</p>';
+  }
+});
+
+document.addEventListener("DOMContentLoaded", initializeEditorSidebarWidgets);
+document.body.addEventListener("htmx:afterSwap", initializeEditorSidebarWidgets);

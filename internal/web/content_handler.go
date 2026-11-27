@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -20,11 +21,14 @@ import (
 	"github.com/Luw17/go-content-go/internal/media"
 	"github.com/Luw17/go-content-go/internal/navigation"
 	"github.com/Luw17/go-content-go/internal/plugins"
+	"github.com/Luw17/go-content-go/internal/redirects"
 	"github.com/Luw17/go-content-go/internal/seo"
 	"github.com/Luw17/go-content-go/internal/siteconfig"
 	themeengine "github.com/Luw17/go-content-go/themes"
 	"github.com/microcosm-cc/bluemonday"
 )
+
+const homePostsPerPage = 10
 
 type adminPage struct {
 	Mode               string
@@ -68,10 +72,21 @@ type adminPage struct {
 	PluginManifest     plugins.Manifest
 	PluginPageHTML     template.HTML
 	PluginSettings     []pluginSettingRow
-	TOTPEnabled        bool
-	TOTPSecret         string
-	TOTPURI            string
-	PermissionFindings []config.PermissionFinding
+	TOTPEnabled            bool
+	TOTPSecret             string
+	TOTPURI                string
+	RecoveryCodes          []string
+	RemainingRecoveryCodes int
+	PermissionFindings     []config.PermissionFinding
+	Redirects              []redirects.Redirect
+	KPIs                   dashboardKPIs
+	HealthChecks           []healthCheckItem
+	Revisions              []content.Revision
+	APIKeys                []auth.APIKey
+	NewAPIKey              string
+	FilterQuery            string
+	FilterStatus           string
+	AdminPagination        *publicPagination
 }
 
 type publicItem struct {
@@ -79,24 +94,43 @@ type publicItem struct {
 	HTML                 template.HTML
 	Summary              string
 	FormattedPublishedAt string
+	ReadingTimeMinutes   int
+	TagLinks             []content.Tag
 }
 
 var publicHTMLTagPattern = regexp.MustCompile(`<[^>]*>`)
 
+type publicPagination struct {
+	Page       int
+	TotalPages int
+	TotalItems int64
+	HasPrev    bool
+	HasNext    bool
+	PrevURL    string
+	NextURL    string
+}
+
 type publicHomeData struct {
-	Theme       string
-	Site        siteconfig.Settings
-	Posts       []publicItem
-	HeadTags    template.HTML
-	BuilderHTML template.HTML
+	Theme              string
+	Site               siteconfig.Settings
+	Posts              []publicItem
+	HeadTags           template.HTML
+	BuilderHTML        template.HTML
+	ArchiveEyebrow     string
+	ArchiveTitle       string
+	ArchiveDescription string
+	SearchQuery        string
+	IsSearch           bool
+	Pagination         *publicPagination
 }
 
 type publicContentData struct {
-	Theme       string
-	Site        siteconfig.Settings
-	Item        publicItem
-	HeadTags    template.HTML
-	BuilderHTML template.HTML
+	Theme        string
+	Site         siteconfig.Settings
+	Item         publicItem
+	HeadTags     template.HTML
+	BuilderHTML  template.HTML
+	RelatedPosts []publicItem
 }
 
 type publicNotFoundData struct {
@@ -123,13 +157,28 @@ func (h *handler) contentList(w http.ResponseWriter, r *http.Request, contentTyp
 		http.Error(w, "invalid trash filter", http.StatusBadRequest)
 		return
 	}
-	var items []content.Item
-	var err error
-	if user.Role == "author" {
-		items, err = content.ListByAuthor(r.Context(), h.db, contentType, trashed, user.ID)
-	} else {
-		items, err = content.List(r.Context(), h.db, contentType, trashed)
+	filterQuery := strings.TrimSpace(r.URL.Query().Get("q"))
+	filterStatus := strings.TrimSpace(r.URL.Query().Get("status"))
+	if filterStatus != "" && filterStatus != content.StatusDraft && filterStatus != content.StatusPublished {
+		filterStatus = ""
 	}
+	pageNum, ok := parsePageParam(r)
+	if !ok {
+		pageNum = 1
+	}
+	var authorFilter int64
+	if user.Role == "author" {
+		authorFilter = user.ID
+	}
+	items, total, err := content.ListFiltered(r.Context(), h.db, content.AdminFilter{
+		ContentType: contentType,
+		Trashed:     trashed,
+		AuthorID:    authorFilter,
+		Query:       filterQuery,
+		Status:      filterStatus,
+		Page:        pageNum,
+		PerPage:     20,
+	})
 	if err != nil {
 		log.Printf("list %s: %v", contentType, err)
 		http.Error(w, "failed to load content", http.StatusInternalServerError)
@@ -141,9 +190,22 @@ func (h *handler) contentList(w http.ResponseWriter, r *http.Request, contentTyp
 		return
 	}
 	label := "Posts"
+	basePath := "/admin/posts"
 	if contentType == content.TypePage {
 		label = "Páginas"
+		basePath = "/admin/pages"
 	}
+	extra := url.Values{}
+	if trashed {
+		extra.Set("trashed", "1")
+	}
+	if filterQuery != "" {
+		extra.Set("q", filterQuery)
+	}
+	if filterStatus != "" {
+		extra.Set("status", filterStatus)
+	}
+	adminPagination := buildPagination(basePath, extra, pageNum, 20, total)
 	page := adminPage{
 		Mode:             "list",
 		Title:            label,
@@ -154,6 +216,9 @@ func (h *handler) contentList(w http.ResponseWriter, r *http.Request, contentTyp
 		ContentTypeLabel: label,
 		Items:            items,
 		Trashed:          trashed,
+		FilterQuery:      filterQuery,
+		FilterStatus:     filterStatus,
+		AdminPagination:  adminPagination,
 	}
 	if r.URL.Query().Get("saved") == "1" {
 		page.Notice = "Conteúdo salvo."
@@ -245,6 +310,10 @@ func (h *handler) editForm(w http.ResponseWriter, r *http.Request, contentType s
 	for _, category := range item.Categories {
 		selected[category.ID] = true
 	}
+	var revisions []content.Revision
+	if id > 0 {
+		revisions, _ = content.ListRevisions(r.Context(), h.db, id, 20)
+	}
 	page := adminPage{
 		Mode:               "form",
 		Title:              label,
@@ -258,6 +327,10 @@ func (h *handler) editForm(w http.ResponseWriter, r *http.Request, contentType s
 		SelectedCategories: selected,
 		TagInput:           strings.Join(item.Tags, ", "),
 		Layouts:            layouts,
+		Revisions:          revisions,
+	}
+	if r.URL.Query().Get("restored") == "1" {
+		page.Notice = "Revisão restaurada com sucesso."
 	}
 	h.renderAdmin(w, page)
 }
@@ -331,6 +404,7 @@ func (h *handler) saveContent(w http.ResponseWriter, r *http.Request, contentTyp
 		SchemaType:          r.FormValue("schema_type"),
 		Noindex:             r.FormValue("noindex") == "1" || r.FormValue("noindex") == "true",
 		LayoutID:            layoutID,
+		ScheduledAt:         r.FormValue("scheduled_at"),
 		CategoryIDs:         categoryIDs,
 		NewCategory:         r.FormValue("new_category"),
 		NewCategoryParentID: parentID,
@@ -360,6 +434,14 @@ func (h *handler) saveContent(w http.ResponseWriter, r *http.Request, contentTyp
 			return
 		}
 	}
+	var previousItem content.Item
+	var hasPrevious bool
+	if input.ID > 0 {
+		if existing, getErr := content.Get(r.Context(), h.db, input.ID, contentType); getErr == nil {
+			previousItem = existing
+			hasPrevious = true
+		}
+	}
 	if contentType == content.TypePost {
 		h.plugins.DispatchAction(r.Context(), "post:before_save", contentHookPayload(input, user.ID))
 	}
@@ -377,6 +459,16 @@ func (h *handler) saveContent(w http.ResponseWriter, r *http.Request, contentTyp
 		log.Printf("save %s: %v", contentType, err)
 		http.Error(w, "failed to save content", http.StatusInternalServerError)
 		return
+	}
+	if hasPrevious &&
+		previousItem.Status == content.StatusPublished &&
+		item.Status == content.StatusPublished &&
+		previousItem.Slug != "" && item.Slug != "" && previousItem.Slug != item.Slug {
+		if settings, cfgErr := siteconfig.Load(r.Context(), h.db); cfgErr == nil && settings.AutoRedirectSlugChange {
+			if _, rErr := redirects.Save(r.Context(), h.db, "/"+previousItem.Slug, "/"+item.Slug, http.StatusMovedPermanently); rErr != nil {
+				log.Printf("auto-create redirect %s -> %s: %v", previousItem.Slug, item.Slug, rErr)
+			}
+		}
 	}
 	if item.Type == content.TypePost {
 		h.plugins.DispatchAction(r.Context(), "post:after_save", map[string]any{
@@ -715,33 +807,6 @@ func (h *handler) previewMarkdown(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprint(w, rendered)
 }
 
-func (h *handler) adminPlaceholder(w http.ResponseWriter, r *http.Request) {
-	user, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	sections := map[string]string{
-		"appearance": "Aparência",
-		"settings":   "Configurações",
-	}
-	title, exists := sections[r.PathValue("section")]
-	if !exists {
-		http.NotFound(w, r)
-		return
-	}
-	token, err := issueCSRFToken(w, r)
-	if err != nil {
-		http.Error(w, "failed to prepare administration", http.StatusInternalServerError)
-		return
-	}
-	h.renderAdmin(w, adminPage{
-		Mode:      "placeholder",
-		Title:     title,
-		Username:  user.Username,
-		CSRFToken: token,
-	})
-}
-
 func (h *handler) publicHome(w http.ResponseWriter, r *http.Request) {
 	settings, err := siteconfig.Load(r.Context(), h.db)
 	if err != nil {
@@ -822,31 +887,300 @@ func (h *handler) publicHome(w http.ResponseWriter, r *http.Request) {
 		}
 		log.Printf("configured front page %d is unavailable; showing published posts", settings.PageOnFront)
 	}
-	items, err := content.Published(r.Context(), h.db, 20)
+	page, ok := parsePageParam(r)
+	if !ok {
+		h.publicNotFound(w, r)
+		return
+	}
+	items, total, err := content.PublishedPage(r.Context(), h.db, page, homePostsPerPage)
 	if err != nil {
 		log.Printf("load public home: %v", err)
 		http.Error(w, "failed to load site", http.StatusInternalServerError)
 		return
 	}
-	var posts []publicItem
-	for _, item := range items {
-		if item.Type != content.TypePost {
-			continue
+	pagination := buildPagination("/", nil, page, homePostsPerPage, total)
+	if page > 1 && page > pagination.TotalPages {
+		h.publicNotFound(w, r)
+		return
+	}
+	posts, err := h.renderPublicItemList(r, items)
+	if err != nil {
+		log.Printf("render public home posts: %v", err)
+		http.Error(w, "failed to render site", http.StatusInternalServerError)
+		return
+	}
+	canonicalPath := "/"
+	pageTitle := ""
+	if page > 1 {
+		canonicalPath = fmt.Sprintf("/?page=%d", page)
+		pageTitle = fmt.Sprintf("%s — Página %d", settings.Title, page)
+	}
+	seoParams := seo.Params{
+		Type:          seo.TypeHome,
+		Title:         pageTitle,
+		CanonicalPath: canonicalPath,
+		PrevURL:       pagination.PrevURL,
+		NextURL:       pagination.NextURL,
+	}
+	h.renderTheme(w, r, "index.html", http.StatusOK, seoParams, func(themeName string, headTags template.HTML, site siteconfig.Settings) any {
+		return publicHomeData{Theme: themeName, Site: site, Posts: posts, HeadTags: headTags, Pagination: pagination}
+	})
+}
+
+func (h *handler) publicCategoryArchive(w http.ResponseWriter, r *http.Request, slug string) {
+	category, err := content.CategoryBySlug(r.Context(), h.db, slug)
+	if errors.Is(err, content.ErrNotFound) {
+		h.publicNotFound(w, r)
+		return
+	}
+	if err != nil {
+		log.Printf("load category %q: %v", slug, err)
+		http.Error(w, "failed to load category", http.StatusInternalServerError)
+		return
+	}
+	page, ok := parsePageParam(r)
+	if !ok {
+		h.publicNotFound(w, r)
+		return
+	}
+	items, total, err := content.PublishedByCategoryPage(r.Context(), h.db, category.Slug, page, homePostsPerPage)
+	if err != nil {
+		log.Printf("load category %q posts: %v", category.Slug, err)
+		http.Error(w, "failed to load category", http.StatusInternalServerError)
+		return
+	}
+	basePath := "/categoria/" + category.Slug
+	pagination := buildPagination(basePath, nil, page, homePostsPerPage, total)
+	if page > 1 && page > pagination.TotalPages {
+		h.publicNotFound(w, r)
+		return
+	}
+	posts, err := h.renderPublicItemList(r, items)
+	if err != nil {
+		log.Printf("render category %q posts: %v", category.Slug, err)
+		http.Error(w, "failed to render category", http.StatusInternalServerError)
+		return
+	}
+	canonicalPath := basePath
+	title := "Categoria: " + category.Name
+	if page > 1 {
+		canonicalPath = fmt.Sprintf("%s?page=%d", basePath, page)
+		title = fmt.Sprintf("%s — Página %d", title, page)
+	}
+	desc := fmt.Sprintf("Artigos publicados na categoria %s.", category.Name)
+	seoParams := seo.Params{
+		Type:           seo.TypeArchive,
+		Title:          title,
+		Description:    desc,
+		CanonicalPath:  canonicalPath,
+		BreadcrumbName: category.Name,
+		PrevURL:        pagination.PrevURL,
+		NextURL:        pagination.NextURL,
+	}
+	h.renderTheme(w, r, "index.html", http.StatusOK, seoParams, func(themeName string, headTags template.HTML, site siteconfig.Settings) any {
+		return publicHomeData{
+			Theme:              themeName,
+			Site:               site,
+			Posts:              posts,
+			HeadTags:           headTags,
+			ArchiveEyebrow:     "Categoria",
+			ArchiveTitle:       category.Name,
+			ArchiveDescription: desc,
+			Pagination:         pagination,
 		}
+	})
+}
+
+func (h *handler) publicTagArchive(w http.ResponseWriter, r *http.Request, slug string) {
+	tag, err := content.TagBySlug(r.Context(), h.db, slug)
+	if errors.Is(err, content.ErrNotFound) {
+		h.publicNotFound(w, r)
+		return
+	}
+	if err != nil {
+		log.Printf("load tag %q: %v", slug, err)
+		http.Error(w, "failed to load tag", http.StatusInternalServerError)
+		return
+	}
+	page, ok := parsePageParam(r)
+	if !ok {
+		h.publicNotFound(w, r)
+		return
+	}
+	items, total, err := content.PublishedByTagPage(r.Context(), h.db, tag.Slug, page, homePostsPerPage)
+	if err != nil {
+		log.Printf("load tag %q posts: %v", tag.Slug, err)
+		http.Error(w, "failed to load tag", http.StatusInternalServerError)
+		return
+	}
+	basePath := "/tag/" + tag.Slug
+	pagination := buildPagination(basePath, nil, page, homePostsPerPage, total)
+	if page > 1 && page > pagination.TotalPages {
+		h.publicNotFound(w, r)
+		return
+	}
+	posts, err := h.renderPublicItemList(r, items)
+	if err != nil {
+		log.Printf("render tag %q posts: %v", tag.Slug, err)
+		http.Error(w, "failed to render tag", http.StatusInternalServerError)
+		return
+	}
+	canonicalPath := basePath
+	title := "Tag: #" + tag.Name
+	if page > 1 {
+		canonicalPath = fmt.Sprintf("%s?page=%d", basePath, page)
+		title = fmt.Sprintf("%s — Página %d", title, page)
+	}
+	desc := fmt.Sprintf("Artigos marcados com a tag %s.", tag.Name)
+	seoParams := seo.Params{
+		Type:           seo.TypeArchive,
+		Title:          title,
+		Description:    desc,
+		CanonicalPath:  canonicalPath,
+		BreadcrumbName: "#" + tag.Name,
+		PrevURL:        pagination.PrevURL,
+		NextURL:        pagination.NextURL,
+	}
+	h.renderTheme(w, r, "index.html", http.StatusOK, seoParams, func(themeName string, headTags template.HTML, site siteconfig.Settings) any {
+		return publicHomeData{
+			Theme:              themeName,
+			Site:               site,
+			Posts:              posts,
+			HeadTags:           headTags,
+			ArchiveEyebrow:     "Tag",
+			ArchiveTitle:       "#" + tag.Name,
+			ArchiveDescription: desc,
+			Pagination:         pagination,
+		}
+	})
+}
+
+func (h *handler) publicSearch(w http.ResponseWriter, r *http.Request) {
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	page, ok := parsePageParam(r)
+	if !ok {
+		h.publicNotFound(w, r)
+		return
+	}
+	var items []content.Item
+	var total int64
+	if query != "" {
+		var err error
+		items, total, err = content.SearchPublishedPage(r.Context(), h.db, query, page, homePostsPerPage)
+		if err != nil {
+			log.Printf("search published content for %q: %v", query, err)
+			http.Error(w, "failed to search content", http.StatusInternalServerError)
+			return
+		}
+	}
+	extraParams := url.Values{}
+	if query != "" {
+		extraParams.Set("q", query)
+	}
+	pagination := buildPagination("/search", extraParams, page, homePostsPerPage, total)
+	if page > 1 && page > pagination.TotalPages {
+		h.publicNotFound(w, r)
+		return
+	}
+	posts, err := h.renderPublicItemList(r, items)
+	if err != nil {
+		log.Printf("render search results for %q: %v", query, err)
+		http.Error(w, "failed to render search results", http.StatusInternalServerError)
+		return
+	}
+	archiveTitle := "Buscar no site"
+	desc := "Digite um termo para pesquisar publicações."
+	if query != "" {
+		archiveTitle = fmt.Sprintf("Resultados para %q", query)
+		if total == 1 {
+			desc = "1 resultado encontrado."
+		} else {
+			desc = fmt.Sprintf("%d resultados encontrados.", total)
+		}
+	}
+	seoParams := seo.Params{
+		Type:          seo.TypeSearch,
+		Title:         archiveTitle,
+		Description:   desc,
+		CanonicalPath: "/search",
+		PrevURL:       pagination.PrevURL,
+		NextURL:       pagination.NextURL,
+	}
+	h.renderTheme(w, r, "index.html", http.StatusOK, seoParams, func(themeName string, headTags template.HTML, site siteconfig.Settings) any {
+		return publicHomeData{
+			Theme:              themeName,
+			Site:               site,
+			Posts:              posts,
+			HeadTags:           headTags,
+			ArchiveEyebrow:     "Busca",
+			ArchiveTitle:       archiveTitle,
+			ArchiveDescription: desc,
+			SearchQuery:        query,
+			IsSearch:           true,
+			Pagination:         pagination,
+		}
+	})
+}
+
+func (h *handler) renderPublicItemList(r *http.Request, items []content.Item) ([]publicItem, error) {
+	posts := make([]publicItem, 0, len(items))
+	for _, item := range items {
 		rendered, err := h.renderPublicMarkdown(r, item.Content)
 		if err != nil {
-			log.Printf("render public post %d: %v", item.ID, err)
-			http.Error(w, "failed to render site", http.StatusInternalServerError)
-			return
+			return nil, err
 		}
 		posts = append(posts, newPublicItem(item, rendered))
 	}
-	seoParams := seo.Params{
-		Type: seo.TypeHome,
+	return posts, nil
+}
+
+func parsePageParam(r *http.Request) (int, bool) {
+	raw := strings.TrimSpace(r.URL.Query().Get("page"))
+	if raw == "" {
+		return 1, true
 	}
-	h.renderTheme(w, r, "index.html", http.StatusOK, seoParams, func(themeName string, headTags template.HTML, site siteconfig.Settings) any {
-		return publicHomeData{Theme: themeName, Site: site, Posts: posts, HeadTags: headTags}
-	})
+	page, err := strconv.Atoi(raw)
+	if err != nil || page < 1 {
+		return 0, false
+	}
+	return page, true
+}
+
+func buildPagination(basePath string, extra url.Values, page, perPage int, total int64) *publicPagination {
+	totalPages := int((total + int64(perPage) - 1) / int64(perPage))
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	buildURL := func(targetPage int) string {
+		q := url.Values{}
+		for k, vals := range extra {
+			for _, v := range vals {
+				q.Add(k, v)
+			}
+		}
+		if targetPage > 1 {
+			q.Set("page", strconv.Itoa(targetPage))
+		}
+		encoded := q.Encode()
+		if encoded == "" {
+			return basePath
+		}
+		return basePath + "?" + encoded
+	}
+	p := &publicPagination{
+		Page:       page,
+		TotalPages: totalPages,
+		TotalItems: total,
+		HasPrev:    page > 1,
+		HasNext:    page < totalPages,
+	}
+	if p.HasPrev {
+		p.PrevURL = buildURL(page - 1)
+	}
+	if p.HasNext {
+		p.NextURL = buildURL(page + 1)
+	}
+	return p
 }
 
 func (h *handler) publicContent(w http.ResponseWriter, r *http.Request) {
@@ -897,29 +1231,50 @@ func (h *handler) publicContent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	public := newPublicItem(item, rendered)
+	if tagLinks, tagErr := content.TagsForItem(r.Context(), h.db, item.ID); tagErr == nil {
+		public.TagLinks = tagLinks
+	}
+	var relatedPosts []publicItem
+	if item.Type == content.TypePost {
+		if relItems, relErr := content.RelatedPosts(r.Context(), h.db, item.ID, 3); relErr == nil {
+			if renderedRel, rErr := h.renderPublicItemList(r, relItems); rErr == nil {
+				relatedPosts = renderedRel
+			}
+		}
+	}
 	seoParams := seo.Params{
 		Type:            pageType,
 		Item:            &item,
 		FallbackSummary: public.Summary,
 	}
 	h.renderTheme(w, r, templateName, http.StatusOK, seoParams, func(themeName string, headTags template.HTML, site siteconfig.Settings) any {
-		return publicContentData{Theme: themeName, Site: site, Item: public, HeadTags: headTags, BuilderHTML: builderHTML}
+		return publicContentData{
+			Theme:        themeName,
+			Site:         site,
+			Item:         public,
+			HeadTags:     headTags,
+			BuilderHTML:  builderHTML,
+			RelatedPosts: relatedPosts,
+		}
 	})
 }
 
 func newPublicItem(item content.Item, rendered string) publicItem {
 	plainText := stdhtml.UnescapeString(publicHTMLTagPattern.ReplaceAllString(rendered, " "))
 	plainText = strings.Join(strings.Fields(plainText), " ")
-	runes := []rune(plainText)
+	readingMinutes := content.ReadingTimeMinutes(plainText)
+	summary := plainText
+	runes := []rune(summary)
 	if len(runes) > 200 {
-		plainText = strings.TrimSpace(string(runes[:200])) + "…"
+		summary = strings.TrimSpace(string(runes[:200])) + "…"
 	}
 	publishedDate := item.PublishedAt
 	if parsed, err := time.Parse(time.RFC3339Nano, item.PublishedAt); err == nil {
 		publishedDate = parsed.Format("02/01/2006")
 	}
 	return publicItem{
-		Item: item, HTML: template.HTML(rendered), Summary: plainText, FormattedPublishedAt: publishedDate,
+		Item: item, HTML: template.HTML(rendered), Summary: summary,
+		FormattedPublishedAt: publishedDate, ReadingTimeMinutes: readingMinutes,
 	}
 }
 
@@ -1062,4 +1417,44 @@ func parseContentForm(w http.ResponseWriter, r *http.Request) error {
 		return fmt.Errorf("parse content form: %w", err)
 	}
 	return nil
+}
+
+func (h *handler) restoreContentRevision(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.requireContentAccess(w, r)
+	if !ok {
+		return
+	}
+	postID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || postID <= 0 {
+		http.NotFound(w, r)
+		return
+	}
+	revID, err := strconv.ParseInt(r.PathValue("revID"), 10, 64)
+	if err != nil || revID <= 0 {
+		http.NotFound(w, r)
+		return
+	}
+	contentType := r.FormValue("content_type")
+	if contentType != content.TypePage {
+		contentType = content.TypePost
+	}
+	if !h.canAccessContent(w, r, user, postID, contentType) {
+		return
+	}
+	item, err := content.RestoreRevision(r.Context(), h.db, postID, revID, user.ID)
+	if errors.Is(err, content.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		log.Printf("restore content revision %d/%d: %v", postID, revID, err)
+		http.Error(w, "failed to restore revision", http.StatusInternalServerError)
+		return
+	}
+	h.cache.Clear()
+	if item.Type == content.TypePage {
+		http.Redirect(w, r, fmt.Sprintf("/admin/pages/%d/edit?restored=1", item.ID), http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/admin/posts/%d/edit?restored=1", item.ID), http.StatusSeeOther)
 }

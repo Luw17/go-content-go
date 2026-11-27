@@ -363,6 +363,11 @@ func parseTheme(files fs.FS, funcs template.FuncMap) (*template.Template, error)
 	if _, ok := funcs["render_footer"]; !ok {
 		funcs["render_footer"] = func() template.HTML { return "" }
 	}
+	if _, ok := funcs["theme_asset"]; !ok {
+		funcs["theme_asset"] = func(themeName, assetPath string) string {
+			return "/themes/" + themeName + "/" + strings.TrimPrefix(assetPath, "/")
+		}
+	}
 	templates, err := template.New("index.html").Funcs(funcs).ParseFS(files, required[:4]...)
 	if err != nil {
 		return nil, fmt.Errorf("parse theme templates: %w", err)

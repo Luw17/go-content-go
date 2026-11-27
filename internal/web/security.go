@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"path"
@@ -13,12 +14,16 @@ import (
 
 const securityContentPolicy = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'; img-src 'self' data: https:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self' data:"
 
-func securityHeaders(next http.Handler) http.Handler {
+func (h *handler) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Security-Policy", securityContentPolicy)
 		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		if h.isHTTPS(r) {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+			r = r.WithContext(context.WithValue(r.Context(), httpsContextKey{}, true))
+		}
 		if internalRequestPath(r.URL.Path) {
 			http.NotFound(w, r)
 			return
@@ -84,7 +89,7 @@ func (h *handler) csrfMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		if !validCSRFToken(r) {
-			slog.Warn("administrative request rejected by CSRF protection", "method", r.Method, "path", r.URL.Path, "remote_addr", clientAddress(r))
+			slog.Warn("administrative request rejected by CSRF protection", "method", r.Method, "path", r.URL.Path, "remote_addr", h.clientAddress(r))
 			http.Error(w, "A sessão do formulário expirou. Atualize a página e tente novamente.", http.StatusForbidden)
 			return
 		}
@@ -115,7 +120,7 @@ func isUploadRequest(r *http.Request) bool {
 		return false
 	}
 	switch r.URL.Path {
-	case "/admin/media/upload", "/admin/appearance/install", "/admin/themes/install", "/admin/plugins/install":
+	case "/admin/media/upload", "/admin/appearance/install", "/admin/themes/install", "/admin/plugins/install", "/admin/tools/import":
 		return true
 	default:
 		return false
@@ -126,7 +131,7 @@ func adminRequestBodyLimit(requestPath string, mediaMax int64) int64 {
 	switch requestPath {
 	case "/admin/media/upload":
 		return mediaMax + (64 << 10)
-	case "/admin/appearance/install", "/admin/themes/install", "/admin/plugins/install":
+	case "/admin/appearance/install", "/admin/themes/install", "/admin/plugins/install", "/admin/tools/import":
 		return packagezip.MaxArchiveSize + (64 << 10)
 	case "/admin/posts/save", "/admin/pages/save", "/admin/preview",
 		"/admin/builder/save", "/admin/builder/preview", "/admin/appearance/sections/save":
@@ -138,7 +143,7 @@ func adminRequestBodyLimit(requestPath string, mediaMax int64) int64 {
 
 func (h *handler) loginProtectionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := clientAddress(r)
+		ip := h.clientAddress(r)
 		blocked, remaining := h.loginProtection.Blocked(ip, time.Now())
 		if blocked {
 			retryAfter := int(remaining.Seconds())
